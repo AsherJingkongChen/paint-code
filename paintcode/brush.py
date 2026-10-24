@@ -12,7 +12,7 @@ class Brush:
     size: float = 8.0            # radius in px at full pressure (the dab is a Gaussian with sigma = size / 2)
     aspect: float = 1.0          # minor / major axis ratio; 1 is round, 0.3 is a flat or filbert
     angle: float | None = None   # None: major axis turns to lie across the stroke; a number: fixed nib angle in degrees
-    hardness: float = 0.0        # 0 is a pure Gaussian; toward 1 the top flattens and the edge sharpens
+    hardness: float = 0.0        # 0 is a pure Gaussian; the profile exponent is 1 / (1 - hardness)
 
     # --- deposition ---
     flow: float = 0.6            # opacity of one dab at full pressure
@@ -72,10 +72,10 @@ PRESETS: dict[str, Brush] = {
     "pencil": Brush(size=1.6, hardness=0.7, flow=0.35, min_size=0.5, min_flow=0.05,
                     grain=0.75, grain_scale=1.6, spacing=0.2),
     "nib": Brush(size=7.0, aspect=0.18, angle=40.0, hardness=0.8, flow=0.95, min_size=0.5, spacing=0.1),
-    "round": Brush(size=8.0, hardness=0.3, flow=0.7),
-    "filbert": Brush(size=9.0, aspect=0.45, hardness=0.35, flow=0.8, pickup=0.03,
+    "round": Brush(size=8.0, hardness=0.6, flow=0.7),
+    "filbert": Brush(size=9.0, aspect=0.45, hardness=0.8, flow=0.8, pickup=0.03,
                      half_life=320.0, grain=0.25, size_jitter=0.06, angle_jitter=3.0),
-    "flat": Brush(size=12.0, aspect=0.22, hardness=0.6, flow=0.85, pickup=0.05,
+    "flat": Brush(size=12.0, aspect=0.22, hardness=0.85, flow=0.85, pickup=0.05,
                   half_life=260.0, grain=0.35, size_jitter=0.04),
     "airbrush": Brush(size=30.0, hardness=0.0, flow=0.06, min_size=0.6, spacing=0.08),
     "dry": Brush(size=10.0, aspect=0.6, hardness=0.5, flow=0.8, half_life=90.0, min_load=0.05,

@@ -104,7 +104,7 @@ for i in range(30):
     x, y = CX + r * math.cos(a), CY + r * math.sin(a) * TILT
     stroke("round", jit([214, 150, 54], 14), [[x, y, rnd.uniform(0.4, 0.9)]], size=3)
 
-scene = {"canvas": {"width": W, "height": H, "background": "#2a2f4a", "seed": 24}, "strokes": S}
+scene = {"canvas": {"width": W, "height": H, "background": "#2a2f4a", "seed": 24, "supersample": 2}, "strokes": S}
 out = Path(__file__).with_suffix("")
 out.with_suffix(".json").write_text(json.dumps(scene))
 c = render(scene)

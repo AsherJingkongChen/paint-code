@@ -103,3 +103,45 @@ def test_smudge_starts_with_the_colour_under_it():
     c.wet[:, :50] = 1.0
     paint_stroke(c, get_brush("blender"), None, [[20, 20], [80, 20]])
     assert c.img[20, 60, 0] > 0.9 and c.img[20, 60, 1] < 0.9   # red dragged into the white
+
+
+# ---------------------------------------------------------------- exports and sharpness
+
+def test_hardness_sharpens_the_edge():
+    def edge(h):
+        c = Canvas(200, 60, background="#000000")
+        paint_stroke(c, Brush(size=18, aspect=0.5, hardness=h), "#ffffff", [[20, 30], [180, 30]])
+        col = c.img[:30, 100, 0]
+        return int(np.argmax(col > 0.9) - np.argmax(col > 0.1))
+    assert edge(0.0) > edge(0.6) > edge(0.9)
+
+
+def test_supersampling_keeps_the_same_painting():
+    a = render(scene()).img
+    b = render(scene(), supersample=2).img
+    assert a.shape == b.shape
+    assert np.abs(a - b).mean() < 0.01
+
+
+def test_petal_round_trip(tmp_path):
+    from paintcode import project
+    s = scene()
+    project.save(tmp_path / "x.petal", s, preview=render(s).to_image())
+    assert project.load(tmp_path / "x.petal") == s
+    assert np.array_equal(render(project.load(tmp_path / "x.petal")).img, render(s).img)
+
+
+def test_ply_is_the_painting(tmp_path):
+    """A soft painting exported as 3DGS splats renders back to the same pixels."""
+    from paintcode import ply
+    s = {"canvas": {"width": 120, "height": 90, "background": "#203040", "seed": 5},
+         "strokes": [
+             {"brush": "round", "hardness": 0, "color": "#e0a040", "points": [[10, 20, 0.2], [60, 70, 1], [110, 30, 0.4]]},
+             {"brush": "filbert", "hardness": 0, "grain": 0, "color": "#40a0e0", "points": [[10, 80], [110, 10]]},
+             {"brush": "ink", "hardness": 0, "color": "#ffffff", "points": [[20, 45, 0.3], [100, 50, 1]]},
+             {"brush": "blender", "color": None, "points": [[30, 30], [90, 60]]},
+         ]}
+    c = render(s, record_dabs=True)
+    ply.write(tmp_path / "x.ply", c.dabs, c.width, c.height, background=[0x20 / 255, 0x30 / 255, 0x40 / 255])
+    back = ply.render_splats(tmp_path / "x.ply")
+    assert np.abs(back - c.img).max() < 2 / 255

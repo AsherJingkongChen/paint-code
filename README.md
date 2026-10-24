@@ -6,7 +6,7 @@ It was written so a language model can paint with its own strokes: the model wri
 
 ![A yellow chrysanthemum at dusk](examples/kiku.png)
 
-`examples/kiku.json` is 629 strokes and 113 KB. Rendered, it becomes 48,927 dabs. The scene is the part that has to fit in a context window; the dabs never do.
+`examples/kiku.petal` holds its 629 strokes in 23 KB. Rendered, they become 52,731 dabs, which take 3.5 MB as a splat file. The strokes are the part that has to fit in a context window; the dabs never do.
 
 ## Install
 
@@ -18,11 +18,18 @@ pip install -e '.[dev]'     # plus pytest
 ## Render
 
 ```bash
-python -m paintcode scene.json -o out.png
-python -m paintcode scene.json -o big.png --scale 2        # coordinates and brush sizes scale together
-python -m paintcode scene.json -o out.png --dabs dabs.json # also export every dab as a Gaussian record
-python -m paintcode scene.json -o out.png --base old.png   # paint over an image (treated as dry paint)
+python -m paintcode scene.json -o out.png -o out.petal -o out.ply   # one render, three exports
+python -m paintcode out.petal -o again.png                          # a project renders like a scene
+python -m paintcode scene.json -o big.png --scale 2                 # coordinates and brush sizes scale together
+python -m paintcode scene.json -o crisp.png --ss 3                  # supersample hard edges
+python -m paintcode scene.json -o out.png --base old.png            # paint over an image (treated as dry paint)
 ```
+
+| export | what it is |
+|---|---|
+| `.png` | the painting |
+| `.petal` | the project: a ZIP (Deflate, lossless) with `scene.json`, `meta.json` and a small `preview.png`. It stores strokes, never dabs |
+| `.ply` | every dab as a flat 3D Gaussian in the 3D Gaussian Splatting layout, readable by splat viewers |
 
 The same scene and seed always produce the same pixels. To keep working on a painting, append strokes to the scene and render it again rather than painting over the PNG: re-rendering keeps the wet-paint state that `--base` cannot recover.
 
@@ -51,11 +58,21 @@ The same scene and seed always produce the same pixels. To keep working on a pai
 
 Each dab is
 
-$$\alpha(\mathbf{x}) = \text{flow}\cdot\exp\!\left(-\tfrac12\, q^{\,1+3h}\right),\qquad q = \left(\tfrac{u}{\sigma_x}\right)^2 + \left(\tfrac{v}{\sigma_y}\right)^2$$
+$$\alpha(\mathbf{x}) = \text{flow}\cdot\exp\!\left(-\tfrac12\, q^{\,n}\right),\qquad n = \frac{1}{1-h},\qquad q = \left(\tfrac{u}{\sigma_x}\right)^2 + \left(\tfrac{v}{\sigma_y}\right)^2$$
 
-where $(u, v)$ is the pixel offset rotated into the dab's frame and $h$ is hardness. With $h = 0$ it is exactly a 2D Gaussian; as $h$ grows the top flattens and the edge sharpens. Dabs are cut off at $q > 9$ and composited with plain "over".
+where $(u, v)$ is the pixel offset rotated into the dab's frame and $h$ is hardness. With $h = 0$ it is exactly a 2D Gaussian; as $h \to 1$ it becomes a hard-edged ellipse one sigma across. Sigmas below half a pixel are raised to 0.5 px, dabs are cut off at $q > 9$, and they are composited with plain "over".
 
-`--dabs` writes `{x, y, sx, sy, theta, rgb, alpha, hardness}` per dab, in paint order. Paper grain is not part of that record.
+### Sharpness
+
+A Gaussian is a low-pass filter, so a stroke made of Gaussians has soft edges by nature. The 10–90% edge of a stroke with $\sigma = 9$ px is 14 px at hardness 0, 5 px at 0.6, 2 px at 0.8 and 1 px at 0.9. Hard brushes alias, so set `canvas.supersample` (or `--ss`) to paint at N times the size and box-filter down; the dabs and the jitter stay the same, only the sampling improves.
+
+### As Gaussian splats
+
+`.ply` writes one Gaussian per dab: position on the image plane (x right, y down, the longer side spanning $[-1, 1]$), scales $\log\sigma$ with a vanishing third axis, a quaternion for the dab angle about $z$, colour as the SH DC term, opacity as a logit. Paint order becomes depth: the first dab is farthest and the last is nearest to a camera on the $-z$ side, so depth-sorted splatting composites them in the order they were painted.
+
+`paintcode.ply.render_splats` is a separate, plain rasteriser that reads only the PLY. For a painting made with hardness 0 and no grain it reproduces the PNG to within 2/255 (`test_ply_is_the_painting`). The 3DGS kernel has no hardness or grain, so other paintings come back softer:
+
+![The painting, and the same dabs rendered back from the PLY](examples/png_vs_ply.png)
 
 ## Brush fields
 
@@ -64,7 +81,7 @@ where $(u, v)$ is the pixel offset rotated into the dab's frame and $h$ is hardn
 | `size` | radius in px at full pressure ($\sigma = \text{size}/2$) |
 | `aspect` | minor / major axis ratio |
 | `angle` | `null`: the major axis lies across the stroke and turns with it; a number: fixed nib angle in degrees |
-| `hardness` | 0 Gaussian, toward 1 flat-topped |
+| `hardness` | profile exponent $1/(1-h)$: 0 is a Gaussian, 0.9 is nearly a hard ellipse |
 | `flow` | opacity built up at the default spacing |
 | `spacing` | dab distance as a fraction of the footprint; flow is normalised to it, so this only trades speed for smoothness |
 | `min_size`, `size_gamma` | radius $= \text{size}\cdot\text{lerp}(\text{min\_size}, 1, p^{\gamma})$ |
@@ -100,7 +117,7 @@ c.save("out.png")
 python -m pytest
 ```
 
-They cover determinism, duplicate control points, stroke direction at joints, the pressure curves, the Gaussian profile, spacing-independent pickup, dry backgrounds, and smudging.
+They cover determinism, duplicate control points, stroke direction at joints, the pressure curves, the Gaussian profile, hardness, supersampling, spacing-independent pickup, dry backgrounds, smudging, and both export round trips.
 
 ## Credits
 

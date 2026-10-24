@@ -23,6 +23,13 @@ def parse_color(c) -> np.ndarray:
     return np.clip(a / 255.0, 0.0, 1.0)
 
 
+def hardness_exponent(h: float) -> float:
+    """Profile exponent for a hardness in 0..1: 1 at h = 0 (Gaussian), growing without bound
+    toward h = 1. Capped at 50, which is already a hard edge at any practical size."""
+    h = min(max(float(h), 0.0), 0.98)
+    return 1.0 / (1.0 - h)
+
+
 class Canvas:
     def __init__(self, width: int, height: int, background=(255, 255, 255), seed: int = 0,
                  record_dabs: bool = False):
@@ -53,6 +60,20 @@ class Canvas:
         dy = (np.arange(y0, y1) + 0.5 - y)[:, None]
         k = np.exp(-0.5 * (dx * dx + dy * dy) / max(0.25, (r / 2) ** 2))
         return (self.img[y0:y1, x0:x1] * k[..., None]).sum((0, 1)) / k.sum()
+
+    def downsample(self, n: int) -> None:
+        """Box-filter the canvas down by an integer factor (exact area averaging).
+
+        Recorded dabs are rescaled with it, so they stay in output pixel units."""
+        h, w = self.height // n, self.width // n
+        self.img = self.img[: h * n, : w * n].reshape(h, n, w, n, 3).mean(axis=(1, 3))
+        self.wet = self.wet[: h * n, : w * n].reshape(h, n, w, n).mean(axis=(1, 3))
+        self.width, self.height = w, h
+        self._grain = {}
+        if self.dabs:
+            for d in self.dabs:
+                for k in ("x", "y", "sx", "sy"):
+                    d[k] = d[k] / n
 
     def to_image(self) -> Image.Image:
         return Image.fromarray((np.clip(self.img, 0, 1) * 255.0 + 0.5).astype(np.uint8), "RGB")
@@ -90,10 +111,13 @@ class Canvas:
         is on average (0..1), or None. sample_src, when given, is (img, wet, ox, oy) covering the
         dab; the pickup is read from it instead of the live canvas.
 
-        The dab is exp(-0.5 * q ** (1 + 3h)) with q the Mahalanobis distance of an ellipse with
-        standard deviations sx (major) and sy (minor) rotated by theta. h = 0 is a 2D Gaussian.
+        The dab is exp(-0.5 * q ** n), n = 1 / (1 - h), with q the squared Mahalanobis distance for
+        standard deviations sx (major) and sy (minor) rotated by theta. h = 0 is a 2D Gaussian;
+        as h approaches 1 the dab becomes a hard-edged ellipse of radius one sigma.
         """
-        sx, sy = max(sx, 0.3), max(sy, 0.3)
+        # below half a pixel a Gaussian falls between pixel centres and flickers; 3DGS adds a
+        # similar low-pass floor. The clamped sigmas are what gets recorded and exported.
+        sx, sy = max(sx, 0.5), max(sy, 0.5)
         ext = 3.0 * max(sx, sy)
         x0, x1 = max(0, int(math.floor(x - ext))), min(self.width, int(math.ceil(x + ext)) + 1)
         y0, y1 = max(0, int(math.floor(y - ext))), min(self.height, int(math.ceil(y + ext)) + 1)
@@ -106,15 +130,8 @@ class Canvas:
         u = (dx * c + dy * s) / sx
         v = (-dx * s + dy * c) / sy
         q = u * u + v * v
-        k = np.exp(-0.5 * q ** (1.0 + 3.0 * hardness))
+        k = np.exp(-0.5 * q ** hardness_exponent(hardness))
         k[q > 9.0] = 0.0
-
-        # tiny dabs fall between pixel centres; renormalise so a 0.3 px dab still deposits paint
-        if sx * sy < 1.0:
-            mass = k.sum()
-            if mass <= 0:
-                return None
-            k *= min(1.0, (2 * math.pi * sx * sy) / mass) if mass > 0 else 0
 
         if grain > 0:
             g = self.grain_field(grain_scale)[y0:y1, x0:x1]

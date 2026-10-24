@@ -21,16 +21,24 @@ def _scaled(b: brushes.Brush, scale: float) -> brushes.Brush:
     return b.with_(**kw)
 
 
-def render(scene: dict, base=None, scale: float = 1.0, record_dabs: bool = False) -> Canvas:
+def render(scene: dict, base=None, scale: float = 1.0, record_dabs: bool = False,
+           supersample: int | None = None) -> Canvas:
+    """Paint a scene. supersample N paints at N times the size and box-filters down, so hard
+    brush edges come out crisp without stair-steps. It defaults to canvas.supersample (1)."""
     cfg = scene.get("canvas", {})
     seed = int(cfg.get("seed", 0))
+    ss = int(supersample if supersample is not None else cfg.get("supersample", 1))
+    if ss < 1:
+        raise ValueError("supersample must be >= 1")
     if base is not None:
         canvas = Canvas.from_image(base, seed=seed, record_dabs=record_dabs)
-        scale = 1.0
+        scale, ss = 1.0, 1
     else:
         w, h = int(cfg.get("width", 800)), int(cfg.get("height", 600))
-        canvas = Canvas(round(w * scale), round(h * scale), cfg.get("background", [255, 255, 255]),
+        canvas = Canvas(round(w * scale) * ss, round(h * scale) * ss, cfg.get("background", [255, 255, 255]),
                         seed=seed, record_dabs=record_dabs)
+    out_scale = scale
+    scale = scale * ss
 
     named = {name: brushes.get(spec) for name, spec in scene.get("brushes", {}).items()}
 
@@ -46,8 +54,15 @@ def render(scene: dict, base=None, scale: float = 1.0, record_dabs: bool = False
         b = _scaled(b, scale)
         pts = [[c * scale if j < 2 else c for j, c in enumerate(pt)] for pt in s["points"]]
         paint_stroke(canvas, b, s.get("color", [0, 0, 0]), pts, smooth=s.get("smooth", True))
+    if ss > 1:
+        canvas.downsample(ss)
+    canvas.scale = out_scale
     return canvas
 
 
 def load(path) -> dict:
+    """Read a scene from a .json file or a .petal project."""
+    if Path(path).suffix.lower() == ".petal":
+        from .project import load as load_project
+        return load_project(path)
     return json.loads(Path(path).read_text())
