@@ -25,7 +25,7 @@ for i, name in enumerate(names):
 blend_y = 40 + names.index("blender") * ROW
 for j in range(6):
     strokes.insert(0, {"brush": "flat", "color": ["#e76f51", "#2a9d8f", "#264653"][j % 3],
-                       "points": [[180 + j * 85, blend_y - 22], [180 + j * 85, blend_y + 22]], "size": 14})
+                       "points": [[180 + j * 85, blend_y - 22], [180 + j * 85, blend_y + 22]], "size": 7.8})
 
 scene = {"canvas": {"width": W, "height": 40 + ROW * len(names), "background": "#f4efe6", "seed": 2},
          "strokes": strokes}

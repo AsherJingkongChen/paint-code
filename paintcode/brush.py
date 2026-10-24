@@ -9,7 +9,7 @@ import math
 @dataclass(frozen=True)
 class Brush:
     # --- footprint ---
-    size: float = 8.0            # radius in px at full pressure (the dab is a Gaussian with sigma = size / 2)
+    size: float = 8.0            # visible radius in px at full pressure, the same at every hardness
     aspect: float = 1.0          # minor / major axis ratio; 1 is round, 0.3 is a flat or filbert
     angle: float | None = None   # None: major axis turns to lie across the stroke; a number: fixed nib angle in degrees
     hardness: float = 0.0        # 0 is a pure Gaussian; the profile exponent is 1 / (1 - hardness)
@@ -57,6 +57,13 @@ class Brush:
         p = min(1.0, max(0.0, p))
         return self.flow * (self.min_flow + (1.0 - self.min_flow) * p ** self.flow_gamma)
 
+    def sigma_scale(self) -> float:
+        """sigma / radius. The dab profile exp(-0.5 q^n) reaches e^-2 at sigma * 2^(1/n), so
+        sigma = radius * 2^(-1/n) puts that edge at the radius for every hardness: a Gaussian
+        gets sigma = radius / 2, a hard ellipse gets sigma = radius."""
+        from .canvas import hardness_exponent
+        return 2.0 ** (-1.0 / hardness_exponent(self.hardness))
+
     def footprint_along(self, r: float) -> float:
         """Half-extent of the dab measured along the direction of travel."""
         if self.angle is None:          # major axis lies across the stroke, so the minor one runs along it
@@ -68,17 +75,17 @@ class Brush:
 
 
 PRESETS: dict[str, Brush] = {
-    "ink": Brush(size=3.0, hardness=0.6, flow=0.9, min_size=0.15, spacing=0.12),
-    "pencil": Brush(size=1.6, hardness=0.7, flow=0.35, min_size=0.5, min_flow=0.05,
+    "ink": Brush(size=2.0, hardness=0.6, flow=0.9, min_size=0.15, spacing=0.12),
+    "pencil": Brush(size=1.0, hardness=0.7, flow=0.35, min_size=0.5, min_flow=0.05,
                     grain=0.75, grain_scale=1.6, spacing=0.2),
-    "nib": Brush(size=7.0, aspect=0.18, angle=40.0, hardness=0.8, flow=0.95, min_size=0.5, spacing=0.1),
-    "round": Brush(size=8.0, hardness=0.6, flow=0.7),
-    "filbert": Brush(size=9.0, aspect=0.45, hardness=0.8, flow=0.8, pickup=0.03,
+    "nib": Brush(size=4.0, aspect=0.18, angle=40.0, hardness=0.8, flow=0.95, min_size=0.5, spacing=0.1),
+    "round": Brush(size=5.3, hardness=0.6, flow=0.7),
+    "filbert": Brush(size=5.2, aspect=0.45, hardness=0.8, flow=0.8, pickup=0.03,
                      half_life=320.0, grain=0.25, size_jitter=0.06, angle_jitter=3.0),
-    "flat": Brush(size=12.0, aspect=0.22, hardness=0.85, flow=0.85, pickup=0.05,
+    "flat": Brush(size=6.7, aspect=0.22, hardness=0.85, flow=0.85, pickup=0.05,
                   half_life=260.0, grain=0.35, size_jitter=0.04),
     "airbrush": Brush(size=30.0, hardness=0.0, flow=0.06, min_size=0.6, spacing=0.08),
-    "dry": Brush(size=10.0, aspect=0.6, hardness=0.5, flow=0.8, half_life=90.0, min_load=0.05,
+    "dry": Brush(size=7.1, aspect=0.6, hardness=0.5, flow=0.8, half_life=90.0, min_load=0.05,
                  grain=0.8, grain_scale=2.5, pickup=0.02),
     "blender": Brush(size=10.0, hardness=0.0, flow=0.35, pickup=0.6),
 }

@@ -145,3 +145,12 @@ def test_ply_is_the_painting(tmp_path):
     ply.write(tmp_path / "x.ply", c.dabs, c.width, c.height, background=[0x20 / 255, 0x30 / 255, 0x40 / 255])
     back = ply.render_splats(tmp_path / "x.ply")
     assert np.abs(back - c.img).max() < 2 / 255
+
+
+def test_same_size_looks_the_same_at_any_hardness():
+    widths = []
+    for h in (0.0, 0.5, 0.8, 0.95):
+        c = Canvas(200, 80, background="#000000")
+        paint_stroke(c, Brush(size=16, hardness=h), "#ffffff", [[20, 40], [180, 40]])
+        widths.append(int((c.img[:, 100, 0] > 0.5).sum()))
+    assert max(widths) - min(widths) <= 0.2 * max(widths)

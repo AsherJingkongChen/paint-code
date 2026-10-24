@@ -119,7 +119,7 @@ def paint_stroke(canvas: Canvas, brush: Brush, color, points, smooth: bool = Tru
     if brush.pickup > 0 and pts:
         xs = [q[0] for q in pts]
         ys = [q[1] for q in pts]
-        pad = int(math.ceil(3.0 * 0.5 * brush.size * (1.0 + brush.size_jitter) * (1.0 + brush.tilt_stretch)
+        pad = int(math.ceil(3.0 * brush.size * (1.0 + brush.size_jitter) * (1.0 + brush.tilt_stretch)
                             * (1.0 + brush.pos_jitter))) + 3
         ox, oy = max(0, int(min(xs)) - pad), max(0, int(min(ys)) - pad)
         ex, ey = min(canvas.width, int(max(xs)) + pad + 1), min(canvas.height, int(max(ys)) + pad + 1)
@@ -151,8 +151,9 @@ def paint_stroke(canvas: Canvas, brush: Brush, color, points, smooth: bool = Tru
             x += rng.uniform(-1, 1) * brush.pos_jitter * r
             y += rng.uniform(-1, 1) * brush.pos_jitter * r
 
-        sx = 0.5 * r * (1.0 + brush.tilt_stretch * tilt)
-        sy = 0.5 * r * brush.aspect
+        k = brush.sigma_scale()
+        sx = k * r * (1.0 + brush.tilt_stretch * tilt)
+        sy = k * r * brush.aspect
         under = canvas.stamp(x, y, sx, sy, theta, carried, flow, brush.hardness,
                              brush.grain, brush.grain_scale, sample_src=snap)
         if under is not None and brush.pickup > 0:

@@ -39,13 +39,13 @@ for i in range(260):
     c = mix(TOP, MID, t / 0.55) if t < 0.55 else mix(MID, LOW, (t - 0.55) / 0.45)
     ln = rnd.uniform(30, 90)
     stroke("flat", jit(c, 6), [[x, y, 0.5], [x + ln * 0.5, y + rnd.uniform(-4, 4), 0.9], [x + ln, y + rnd.uniform(-6, 6), 0.4]],
-           size=rnd.uniform(10, 18), flow=0.22, grain=0.5)
+           size=rnd.uniform(5.5, 10), flow=0.22, grain=0.5)
 
 CX, CY = 330, 280
 
 # ---- stem and leaves
 stroke("round", [52, 74, 50], [[CX + 10, CY + 60, 1], [CX + 30, CY + 200, 0.9], [CX + 15, CY + 330, 0.8], [CX + 40, H + 20, 0.7]],
-       size=7, hardness=0.4)
+       size=5.3, hardness=0.4)
 for (lx, ly, ang, ln) in [(CX + 28, CY + 225, 205, 120), (CX + 32, CY + 295, -28, 135), (CX + 22, CY + 385, 215, 105)]:
     a = math.radians(ang)
     ux, uy = math.cos(a), math.sin(a)          # along the midrib
@@ -62,20 +62,20 @@ for (lx, ly, ang, ln) in [(CX + 28, CY + 225, 205, 120), (CX + 32, CY + 295, -28
             shade = 0.25 + 0.5 * t + (0.15 if side > 0 else 0)
             col = mix([34, 60, 40], [86, 120, 70], shade)
             stroke("filbert", jit(col, 6), [[mx, my, 0.9], [(mx + ex) / 2, (my + ey) / 2, 1.0], [ex, ey, 0.35]],
-                   size=7.5, half_life=None, pickup=0.08)
+                   size=4.3, half_life=None, pickup=0.08)
     stroke("blender", None, [[lx + ux * 8, ly + uy * 8], [lx + ux * ln * 0.9, ly + uy * ln * 0.9]], size=10, pickup=0.35, flow=0.25)
     stroke("ink", [140, 170, 110], [[lx, ly, 0.8], [lx + ux * ln * 0.5, ly + uy * ln * 0.5, 0.6], [lx + ux * ln * 0.92, ly + uy * ln * 0.92, 0.05]],
-           size=1.4, flow=0.5)
+           size=0.92, flow=0.5)
 
 # ---- the flower: back petals first, darker and longer; then lighter, shorter, curling in
 LAYERS = [  # count, length, colour, size, curl
-    (34, 165, [170, 92, 28], 8.5, 0.10),
-    (30, 145, [210, 128, 36], 8.5, 0.16),
-    (28, 122, [234, 164, 52], 8.5, 0.24),
-    (24, 96, [246, 194, 76], 8.0, 0.34),
-    (20, 70, [250, 214, 110], 7.5, 0.48),
-    (18, 46, [252, 226, 140], 7.0, 0.62),
-    (12, 26, [250, 210, 120], 6.0, 0.80),
+    (34, 165, [170, 92, 28], 4.9, 0.10),
+    (30, 145, [210, 128, 36], 4.9, 0.16),
+    (28, 122, [234, 164, 52], 4.9, 0.24),
+    (24, 96, [246, 194, 76], 4.6, 0.34),
+    (20, 70, [250, 214, 110], 4.3, 0.48),
+    (18, 46, [252, 226, 140], 4.0, 0.62),
+    (12, 26, [250, 210, 120], 3.4, 0.80),
 ]
 TILT = 0.78   # the flower faces us slightly from above: squash the vertical axis
 for li, (n, L, col, size, curl) in enumerate(LAYERS):
@@ -95,14 +95,14 @@ for li, (n, L, col, size, curl) in enumerate(LAYERS):
         stroke("filbert", jit(col, 12), pts, size=size)
         if li >= 2 and rnd.random() < 0.55:   # a light ridge down the middle of the petal
             hl = [mix(col, [255, 240, 190], 0.4)]
-            stroke("ink", hl[0], [[q[0], q[1], q[2] * 0.7] for q in pts[1:5]], size=1.4, flow=0.3)
+            stroke("ink", hl[0], [[q[0], q[1], q[2] * 0.7] for q in pts[1:5]], size=0.92, flow=0.3)
 
 # ---- the heart: tight dabs, then a smudge so it reads as one mass
 for i in range(30):
     r = abs(rnd.gauss(0, 4))
     a = rnd.uniform(0, 2 * math.pi)
     x, y = CX + r * math.cos(a), CY + r * math.sin(a) * TILT
-    stroke("round", jit([214, 150, 54], 14), [[x, y, rnd.uniform(0.4, 0.9)]], size=3)
+    stroke("round", jit([214, 150, 54], 14), [[x, y, rnd.uniform(0.4, 0.9)]], size=2)
 
 scene = {"canvas": {"width": W, "height": H, "background": "#2a2f4a", "seed": 24, "supersample": 2}, "strokes": S}
 out = Path(__file__).with_suffix("")

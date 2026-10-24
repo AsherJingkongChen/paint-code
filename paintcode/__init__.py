@@ -7,4 +7,4 @@ from .stroke import paint_stroke, samples
 
 __all__ = ["Brush", "PRESETS", "get_brush", "Canvas", "parse_color", "paint_stroke", "samples",
            "render", "load_scene"]
-__version__ = "0.2.0"
+__version__ = "0.3.0"

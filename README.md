@@ -60,11 +60,11 @@ Each dab is
 
 $$\alpha(\mathbf{x}) = \text{flow}\cdot\exp\!\left(-\tfrac12\, q^{\,n}\right),\qquad n = \frac{1}{1-h},\qquad q = \left(\tfrac{u}{\sigma_x}\right)^2 + \left(\tfrac{v}{\sigma_y}\right)^2$$
 
-where $(u, v)$ is the pixel offset rotated into the dab's frame and $h$ is hardness. With $h = 0$ it is exactly a 2D Gaussian; as $h \to 1$ it becomes a hard-edged ellipse one sigma across. Sigmas below half a pixel are raised to 0.5 px, dabs are cut off at $q > 9$, and they are composited with plain "over".
+where $(u, v)$ is the pixel offset rotated into the dab's frame and $h$ is hardness. The profile reaches $e^{-2}$ at $\sigma\, 2^{1/n}$, so the engine sets $\sigma = \text{radius}\cdot 2^{-1/n}$: the visible edge stays at the brush radius whatever the hardness, with $\sigma = r/2$ for a Gaussian and $\sigma = r$ for a hard ellipse. With $h = 0$ it is exactly a 2D Gaussian; as $h \to 1$ it becomes a hard-edged ellipse one sigma across. Sigmas below half a pixel are raised to 0.5 px, dabs are cut off at $q > 9$, and they are composited with plain "over".
 
 ### Sharpness
 
-A Gaussian is a low-pass filter, so a stroke made of Gaussians has soft edges by nature. The 10–90% edge of a stroke with $\sigma = 9$ px is 14 px at hardness 0, 5 px at 0.6, 2 px at 0.8 and 1 px at 0.9. Hard brushes alias, so set `canvas.supersample` (or `--ss`) to paint at N times the size and box-filter down; the dabs and the jitter stay the same, only the sampling improves.
+A Gaussian is a low-pass filter, so a stroke made of Gaussians has soft edges by nature; hardness is the cure. A stroke of size 16 keeps a half-coverage width of 26 to 30 px from hardness 0 to 0.95, while its 10–90% edge narrows from about 14 px to 1 px. Hard brushes alias, so set `canvas.supersample` (or `--ss`) to paint at N times the size and box-filter down; the dabs and the jitter stay the same, only the sampling improves.
 
 ### As Gaussian splats
 
@@ -78,7 +78,7 @@ A Gaussian is a low-pass filter, so a stroke made of Gaussians has soft edges by
 
 | field | meaning |
 |---|---|
-| `size` | radius in px at full pressure ($\sigma = \text{size}/2$) |
+| `size` | visible radius in px at full pressure; the same size looks the same at every hardness |
 | `aspect` | minor / major axis ratio |
 | `angle` | `null`: the major axis lies across the stroke and turns with it; a number: fixed nib angle in degrees |
 | `hardness` | profile exponent $1/(1-h)$: 0 is a Gaussian, 0.9 is nearly a hard ellipse |
