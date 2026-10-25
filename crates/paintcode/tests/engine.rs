@@ -1,8 +1,8 @@
 //! What the engine promises, one behaviour per test (ported from the numpy engine's
 //! tests/test_engine.py when that engine retired).
 
-use paintcode::coat::{Options, paint_petal, samples};
 use paintcode::flower::{Brush, Color, preset};
+use paintcode::petal::{Options, paint_petal, samples};
 use paintcode::render::{Canvas, Dab, Spans};
 use paintcode::{Flower, RenderOpts, render};
 use serde_json::{Value, json};

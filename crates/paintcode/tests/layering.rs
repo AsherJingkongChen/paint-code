@@ -8,7 +8,7 @@ const ALLOWED: [(&str, &[&str]); 5] = [
     ("math", &[]),
     ("flower", &["math"]),
     ("render", &["math"]),
-    ("coat", &["math", "flower", "render"]),
+    ("petal", &["math", "flower", "render"]),
     ("io", &["render"]),
 ];
 

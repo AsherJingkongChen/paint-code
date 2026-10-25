@@ -12,20 +12,20 @@
 //! | `math`   | leaf   | nothing               | counter-based RNG, dab profile and geometry     |
 //! | `flower` | bones  | math                  | flower, petal and brush types, presets, colours |
 //! | `render` | render | math                  | dabs to pixels, paper grain, downsampling       |
-//! | `coat`   | flesh  | math, flower, render  | petals to dabs, carrying paint                  |
+//! | `petal`  | flesh  | math, flower, render  | petals to dabs, carrying paint                  |
 //! | `io`     | files  | render                | encoders and decoders, in pairs                 |
 //!
 //! This file only conducts: [`render`] walks the petals of a [`Flower`] over a [`Canvas`].
 
-pub mod coat;
 pub mod flower;
 pub mod io;
 pub mod math;
+pub mod petal;
 pub mod render;
 
-pub use coat::{Options, Painted};
 pub use flower::{Error, Flower, Result};
 pub use io::{image_to_png, laid_to_ply, petal_to_scene, png_to_image, scene_to_petal};
+pub use petal::{Options, Painted};
 pub use render::{Canvas, Laid, RgbImage, Spans};
 
 #[derive(Debug, Clone, Copy)]
@@ -93,7 +93,7 @@ pub fn render(flower: &Flower, opts: &RenderOpts) -> Result<Canvas> {
             .iter()
             .map(|q| [q[0] * scale, q[1] * scale, q[2], q[3]])
             .collect();
-        coat::paint_petal(&mut canvas, &brush, &p.color, &pts, p.smooth, opts.petal);
+        petal::paint_petal(&mut canvas, &brush, &p.color, &pts, p.smooth, opts.petal);
     }
     canvas.downsample(ss as usize);
     Ok(canvas)
