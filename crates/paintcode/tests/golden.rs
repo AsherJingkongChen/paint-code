@@ -10,9 +10,10 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use paintcode::io::{PLY_FIELDS, ply_to_splats};
+use paintcode::io::{PLY_FIELDS, decode_ply};
 use paintcode::{
-    Flower, RenderOpts, decode_ply, decode_png, encode_ply, flower_to_coat, lay_coat, paint_flower,
+    Flower, RenderOpts, decode_canvas, decode_coat, encode_coat, flower_to_coat, lay_coat,
+    paint_flower,
 };
 use serde_json::Value;
 
@@ -61,9 +62,7 @@ fn check(name: &str) {
     assert_eq!((canvas.width, canvas.height), (w, h), "{name}: size");
 
     // the PNG: the same, but for a few values one step off where 8-bit rounding sits on a tie
-    let want = decode_png(&std::fs::read(golden(&format!("{name}.png"))).unwrap())
-        .unwrap()
-        .0;
+    let want = decode_canvas(&std::fs::read(golden(&format!("{name}.png"))).unwrap()).unwrap();
     let got = canvas.dry();
     let diffs: Vec<i16> = want
         .pixels
@@ -101,16 +100,16 @@ fn check(name: &str) {
     // core writes them unrounded)
     // the coat, through its file and back: the same canvas, every bit
     let coat = flower_to_coat(&flower, &opts).unwrap();
-    let ply = encode_ply(&coat);
-    let again = lay_coat(&decode_ply(&ply).unwrap()).unwrap();
+    let ply = encode_coat(&coat);
+    let again = lay_coat(&decode_coat(&ply).unwrap()).unwrap();
     assert!(
         again.rgb == canvas.rgb,
         "{name}: the coat lays another canvas"
     );
 
     if let Some(f) = case.get("ply").and_then(Value::as_str) {
-        let want = ply_to_splats(&std::fs::read(golden(f)).unwrap()).unwrap();
-        let got = ply_to_splats(&ply).unwrap();
+        let want = decode_ply(&std::fs::read(golden(f)).unwrap()).unwrap();
+        let got = decode_ply(&ply).unwrap();
         // the exact fields and the paintcode comment come after what the numpy engine wrote
         assert_eq!(got.names[..PLY_FIELDS.len()], want.names);
         let comments: Vec<_> = got

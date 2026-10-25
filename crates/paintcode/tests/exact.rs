@@ -50,9 +50,7 @@ fn png_round_trip_of_a_render() {
     let s = flower("brush_sheet.flower.json");
     let img = paint_flower(&s, &RenderOpts::default()).unwrap().dry();
     assert_eq!(
-        paintcode::decode_png(&paintcode::encode_png(&img, None))
-            .unwrap()
-            .0,
+        paintcode::decode_canvas(&paintcode::encode_canvas(&img)).unwrap(),
         img
     );
 }

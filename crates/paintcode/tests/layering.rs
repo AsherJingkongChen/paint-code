@@ -9,7 +9,7 @@ const ALLOWED: [(&str, &[&str]); 5] = [
     ("flower", &["math"]),
     ("render", &["math"]),
     ("petal", &["math", "flower", "render"]),
-    ("io", &["render"]),
+    ("io", &["flower", "render"]),
 ];
 
 fn sources(m: &str, src: &Path) -> Vec<String> {

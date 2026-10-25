@@ -13,7 +13,7 @@
 //! | `flower` | bones  | math                  | flower, petal and brush types, presets, colours |
 //! | `render` | render | math                  | dabs to pixels, coats, paper grain, downsampling|
 //! | `petal`  | flesh  | math, flower, render  | petals to dabs, carrying paint                  |
-//! | `io`     | files  | render                | encoders and decoders, in pairs                 |
+//! | `io`     | files  | flower, render        | encoders and decoders, in pairs                 |
 //!
 //! This file only conducts: [`paint_flower`] walks the petals of a [`Flower`] over a [`WetCanvas`],
 //! [`flower_to_coat`] keeps the dabs it lays, and [`lay_coat`] lays them again. Dried, a wet canvas
@@ -26,7 +26,9 @@ pub mod petal;
 pub mod render;
 
 pub use flower::{Error, Flower, Result};
-pub use io::{decode_flower, decode_ply, decode_png, encode_flower, encode_ply, encode_png};
+pub use io::{
+    decode_canvas, decode_coat, decode_flower, encode_canvas, encode_coat, encode_flower,
+};
 pub use petal::{Options, Painted};
 pub use render::{Canvas, Coat, Spans, WetCanvas};
 
@@ -47,6 +49,25 @@ impl Default for RenderOpts {
             petal: Options::default(),
         }
     }
+}
+
+/// The canvas with a flower on it, which [`encode_canvas`] writes into the PNG. Any flower that was
+/// on it is replaced.
+pub fn flower_on_canvas(flower: &Flower, canvas: Canvas) -> Canvas {
+    let text = String::from_utf8(encode_flower(flower)).expect("JSON is UTF-8");
+    Canvas {
+        flower: Some(text),
+        ..canvas
+    }
+}
+
+/// The flower on a canvas. A canvas without one is an error.
+pub fn flower_off_canvas(canvas: &Canvas) -> Result<Flower> {
+    let text = canvas
+        .flower
+        .as_deref()
+        .ok_or_else(|| Error("no flower on this canvas".into()))?;
+    Flower::from_json(text)
 }
 
 /// Paint a flower: its canvas.

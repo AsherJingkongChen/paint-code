@@ -345,26 +345,28 @@ fn a_coat_survives_its_ply() {
         ..RenderOpts::default()
     };
     let c = coat(busy(), opts);
-    let back = paintcode::decode_ply(&paintcode::encode_ply(&c)).unwrap();
+    let back = paintcode::decode_coat(&paintcode::encode_coat(&c)).unwrap();
     assert_eq!(back, c);
     assert!(lay_coat(&back).unwrap().rgb == paint(busy(), opts).rgb);
 }
 
 #[test]
 fn a_flower_rides_on_its_canvas() {
-    let text = busy().to_string();
-    let image = paint(busy(), RenderOpts::default()).dry();
-    let png = paintcode::encode_png(&image, Some(&text));
-    assert_eq!(paintcode::decode_flower(&png).unwrap(), busy());
-    let (pixels, on) = paintcode::decode_png(&png).unwrap();
-    assert_eq!((pixels, on), (image, Some(text)));
+    let canvas = paint(busy(), RenderOpts::default()).dry();
+    let on = paintcode::flower_on_canvas(&flower(busy()), canvas.clone());
+    let png = paintcode::encode_canvas(&on);
+    assert_eq!(paintcode::decode_flower(&png).unwrap(), flower(busy()));
+    assert_eq!(paintcode::decode_canvas(&png).unwrap(), on);
+    assert_eq!(paintcode::flower_off_canvas(&on).unwrap(), flower(busy()));
+    let e = paintcode::flower_off_canvas(&canvas).unwrap_err().0;
+    assert_eq!(e, "no flower on this canvas");
 }
 
 /// A deliberately plain 3DGS-style rasteriser that reads only the PLY: builds each Gaussian's 3D
 /// covariance from scale and rotation, projects it orthographically, sorts far to near, and
 /// composites exp(-0.5 d^T S^-1 d) * sigmoid(opacity), cut off at three sigma.
 fn render_splats(ply: &[u8], background: [f32; 3]) -> (usize, usize, Vec<f32>) {
-    let s = paintcode::io::ply_to_splats(ply).unwrap();
+    let s = paintcode::io::decode_ply(ply).unwrap();
     let canvas = s
         .comments
         .iter()
@@ -455,7 +457,7 @@ fn a_soft_painting_round_trips_through_the_ply() {
             {"brush": "blender", "color": null, "points": [[30, 30], [90, 60]]}]});
     let c = paint(v.clone(), RenderOpts::default());
     let bg = rgb("#203040");
-    let ply = paintcode::encode_ply(&coat(v, RenderOpts::default()));
+    let ply = paintcode::encode_coat(&coat(v, RenderOpts::default()));
     let (w, h, back) = render_splats(&ply, bg);
     assert_eq!((w, h), (c.width, c.height));
     let gap = back

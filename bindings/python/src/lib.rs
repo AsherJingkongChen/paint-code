@@ -32,17 +32,14 @@ fn file_error(path: &Path, e: String) -> PyErr {
     PyValueError::new_err(format!("{}: {e}", path.display()))
 }
 
-/// A flower dict as JSON, checked: what the engine would refuse is refused here, before any file
+/// A flower from its dict, checked: what the engine would refuse is refused here, before any file
 /// is written or any pixel is painted.
-fn flower_value(py: Python<'_>, flower: &Bound<'_, PyAny>) -> PyResult<(Flower, Value)> {
+fn to_flower(py: Python<'_>, flower: &Bound<'_, PyAny>) -> PyResult<Flower> {
     let text: String = py
         .import("json")?
         .call_method1("dumps", (flower,))?
         .extract()?;
-    let value: Value = serde_json::from_str(&text)
-        .map_err(|e| PyValueError::new_err(format!("flower is not JSON: {e}")))?;
-    let parsed = Flower::from_value(&value).map_err(value_error)?;
-    Ok((parsed, value))
+    Flower::from_json(&text).map_err(value_error)
 }
 
 /// JSON to a dict, keys in their written order.
@@ -122,7 +119,7 @@ impl Canvas {
 
     /// The canvas as PNG bytes, with its flower if one is on it: what save_canvas writes.
     fn png<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new(py, &io::encode_png(&self.0, self.0.flower.as_deref()))
+        PyBytes::new(py, &io::encode_canvas(&self.0))
     }
 
     fn __repr__(&self) -> String {
@@ -178,21 +175,16 @@ impl Coat {
 #[pyfunction]
 fn load_flower<'py>(py: Python<'py>, path: PathBuf) -> PyResult<Bound<'py, PyAny>> {
     let bytes = std::fs::read(&path)?;
-    let value = io::decode_flower(&bytes).map_err(|e| file_error(&path, e))?;
-    Flower::from_value(&value).map_err(|e| file_error(&path, e.0))?;
-    to_dict(py, &value)
+    let flower = io::decode_flower(&bytes).map_err(|e| file_error(&path, e))?;
+    to_dict(py, &flower.source)
 }
 
 /// Write a flower as JSON, one petal per line, at `pathname.flower.json`.
 #[pyfunction]
 #[pyo3(signature = (*, flower, pathname))]
 fn save_flower(py: Python<'_>, flower: &Bound<'_, PyAny>, pathname: PathBuf) -> PyResult<PathBuf> {
-    let (_, value) = flower_value(py, flower)?;
-    write(
-        pathname,
-        ".flower.json",
-        io::encode_flower(&value).as_bytes(),
-    )
+    let flower = to_flower(py, flower)?;
+    write(pathname, ".flower.json", &io::encode_flower(&flower))
 }
 
 /// The canvas in a PNG: only the pixels, whether or not a flower is on it (load_flower takes the
@@ -200,8 +192,11 @@ fn save_flower(py: Python<'_>, flower: &Bound<'_, PyAny>, pathname: PathBuf) -> 
 #[pyfunction]
 fn load_canvas(path: PathBuf) -> PyResult<Canvas> {
     let bytes = std::fs::read(&path)?;
-    let (image, _) = io::decode_png(&bytes).map_err(|e| file_error(&path, e))?;
-    Ok(Canvas(image))
+    let canvas = io::decode_canvas(&bytes).map_err(|e| file_error(&path, e))?;
+    Ok(Canvas(paintcode::Canvas {
+        flower: None,
+        ..canvas
+    }))
 }
 
 /// Write a canvas as a PNG at `pathname.png`, or with its flower on it at `pathname.flower.png`.
@@ -209,7 +204,7 @@ fn load_canvas(path: PathBuf) -> PyResult<Canvas> {
 #[pyo3(signature = (*, canvas, pathname))]
 fn save_canvas(py: Python<'_>, canvas: PyRef<'_, Canvas>, pathname: PathBuf) -> PyResult<PathBuf> {
     let c: &Canvas = &canvas;
-    let png = py.detach(|| io::encode_png(&c.0, c.0.flower.as_deref()));
+    let png = py.detach(|| io::encode_canvas(&c.0));
     let suffix = if c.0.flower.is_some() {
         ".flower.png"
     } else {
@@ -222,7 +217,7 @@ fn save_canvas(py: Python<'_>, canvas: PyRef<'_, Canvas>, pathname: PathBuf) -> 
 #[pyfunction]
 fn load_coat(path: PathBuf) -> PyResult<Coat> {
     let bytes = std::fs::read(&path)?;
-    io::decode_ply(&bytes)
+    io::decode_coat(&bytes)
         .map(Coat)
         .map_err(|e| file_error(&path, e))
 }
@@ -233,7 +228,7 @@ fn load_coat(path: PathBuf) -> PyResult<Coat> {
 #[pyo3(signature = (*, coat, pathname))]
 fn save_coat(py: Python<'_>, coat: PyRef<'_, Coat>, pathname: PathBuf) -> PyResult<PathBuf> {
     let coat: &paintcode::Coat = &coat.0;
-    let ply = py.detach(|| io::encode_ply(coat));
+    let ply = py.detach(|| io::encode_coat(coat));
     write(pathname, ".coat.ply", &ply)
 }
 
@@ -248,7 +243,7 @@ fn flower_to_canvas(
     scale: f64,
     supersample: i64,
 ) -> PyResult<Canvas> {
-    let (flower, _) = flower_value(py, flower)?;
+    let flower = to_flower(py, flower)?;
     let o = opts(scale, supersample);
     let canvas = py
         .detach(|| paintcode::flower_to_canvas(&flower, &o))
@@ -265,7 +260,7 @@ fn flower_to_coat(
     scale: f64,
     supersample: i64,
 ) -> PyResult<Coat> {
-    let (flower, _) = flower_value(py, flower)?;
+    let flower = to_flower(py, flower)?;
     let o = opts(scale, supersample);
     py.detach(|| paintcode::flower_to_coat(&flower, &o))
         .map(Coat)
@@ -291,11 +286,11 @@ fn flower_on_canvas(
     flower: &Bound<'_, PyAny>,
     canvas: PyRef<'_, Canvas>,
 ) -> PyResult<Canvas> {
-    let (_, value) = flower_value(py, flower)?;
-    Ok(Canvas(paintcode::Canvas {
-        flower: Some(io::encode_flower(&value)),
-        ..canvas.0.clone()
-    }))
+    let flower = to_flower(py, flower)?;
+    Ok(Canvas(paintcode::flower_on_canvas(
+        &flower,
+        canvas.0.clone(),
+    )))
 }
 
 /// The flower on a canvas. A canvas without one is an error.
@@ -304,14 +299,8 @@ fn flower_off_canvas<'py>(
     py: Python<'py>,
     canvas: PyRef<'py, Canvas>,
 ) -> PyResult<Bound<'py, PyAny>> {
-    let text = canvas
-        .0
-        .flower
-        .as_deref()
-        .ok_or_else(|| PyValueError::new_err("no flower on this canvas"))?;
-    let value: Value = serde_json::from_str(text)
-        .map_err(|e| PyValueError::new_err(format!("flower is not JSON: {e}")))?;
-    to_dict(py, &value)
+    let flower = paintcode::flower_off_canvas(&canvas.0).map_err(value_error)?;
+    to_dict(py, &flower.source)
 }
 
 #[pymodule]

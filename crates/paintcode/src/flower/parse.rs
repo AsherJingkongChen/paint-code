@@ -26,6 +26,8 @@ pub struct Petal {
 /// brushes, and the petals in the order they are laid down.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Flower {
+    /// The flower as it was written, keys in their order: what a file keeps.
+    pub source: Value,
     pub width: usize,
     pub height: usize,
     pub background: [f32; 3],
@@ -109,6 +111,7 @@ impl Flower {
             petals.push(parse_petal(s, &named).map_err(|e| Error(format!("petal {idx}: {e}")))?);
         }
         Ok(Flower {
+            source: v.clone(),
             width,
             height,
             background,

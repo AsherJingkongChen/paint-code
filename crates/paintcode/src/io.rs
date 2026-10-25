@@ -1,18 +1,22 @@
 //! The files. Each encoder comes with its decoder, so every pair can be checked with a round trip.
 //! Decoders look at the bytes, never at a file name.
 //!
+//! `encode_x` turns an `x` into bytes and `decode_x` turns the bytes back:
+//!
 //! | out               | back              | file           | what                                  |
 //! |-------------------|-------------------|----------------|---------------------------------------|
 //! | [`encode_flower`] | [`decode_flower`] | `.flower.json` | a flower, one petal per line          |
-//! | [`encode_png`]    | [`decode_png`]    | `.png`         | a canvas, 8-bit RGB, maybe its flower |
-//! | [`encode_ply`]    | [`decode_ply`]    | `.coat.ply`    | a coat: every dab, as 3D Gaussians    |
+//! | [`encode_canvas`] | [`decode_canvas`] | `.png`         | a canvas, 8-bit RGB, maybe its flower |
+//! | [`encode_coat`]   | [`decode_coat`]   | `.coat.ply`    | a coat: every dab, as 3D Gaussians    |
 //!
-//! [`decode_flower`] also reads the flower on a `.flower.png`.
+//! [`decode_flower`] also reads the flower on a `.flower.png`, and [`decode_ply`] reads any PLY of
+//! float properties as a table, for 3DGS files from elsewhere.
 
 use std::io::Cursor;
 
 use serde_json::Value;
 
+use crate::flower::Flower;
 use crate::render::{Canvas, Coat, Dab, MAX_PIXELS};
 
 pub type Result<T> = std::result::Result<T, String>;
@@ -25,30 +29,30 @@ pub const FLOWER_KEYWORD: &str = "paintcode-flower";
 const FLOWER_LIMIT: usize = 64 << 20;
 const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
 
-pub fn is_png(bytes: &[u8]) -> bool {
+fn is_png(bytes: &[u8]) -> bool {
     bytes.starts_with(PNG_SIGNATURE)
 }
 
-/// Encode pixels as a PNG (8-bit RGB, lossless), with a flower's JSON on it if one is given. The
-/// flower goes in a compressed iTXt chunk before the pixels, where a reader finds it first.
-pub fn encode_png(image: &Canvas, flower: Option<&str>) -> Vec<u8> {
+/// A canvas as a PNG (8-bit RGB, lossless), with its flower if one is on it. The flower goes in a
+/// compressed iTXt chunk before the pixels, where a reader finds it first.
+pub fn encode_canvas(canvas: &Canvas) -> Vec<u8> {
     let mut out = Vec::new();
     {
-        let mut enc = png::Encoder::new(&mut out, image.width as u32, image.height as u32);
+        let mut enc = png::Encoder::new(&mut out, canvas.width as u32, canvas.height as u32);
         enc.set_color(png::ColorType::Rgb);
         enc.set_depth(png::BitDepth::Eight);
         let mut w = enc.write_header().expect("PNG header");
-        if let Some(text) = flower {
-            let mut chunk = png::text_metadata::ITXtChunk::new(FLOWER_KEYWORD, text);
+        if let Some(text) = &canvas.flower {
+            let mut chunk = png::text_metadata::ITXtChunk::new(FLOWER_KEYWORD, text.as_str());
             chunk.compressed = true;
             w.write_text_chunk(&chunk).expect("PNG text");
         }
-        w.write_image_data(&image.pixels).expect("PNG data");
+        w.write_image_data(&canvas.pixels).expect("PNG data");
     }
     out
 }
 
-fn flower_on(info: &png::Info) -> Result<Option<String>> {
+fn read_flower_chunk(info: &png::Info) -> Result<Option<String>> {
     let Some(chunk) = info.utf8_text.iter().find(|c| c.keyword == FLOWER_KEYWORD) else {
         return Ok(None);
     };
@@ -62,21 +66,21 @@ fn flower_on(info: &png::Info) -> Result<Option<String>> {
         .map_err(|e| format!("the flower on this PNG is unreadable: {e}"))
 }
 
-fn png_reader(bytes: &[u8]) -> Result<png::Reader<Cursor<&[u8]>>> {
+fn open_png(bytes: &[u8]) -> Result<png::Reader<Cursor<&[u8]>>> {
     let mut dec = png::Decoder::new(Cursor::new(bytes));
     dec.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
     dec.read_info().map_err(|e| format!("not a PNG: {e}"))
 }
 
-/// Decode a PNG to 8-bit RGB, and the flower on it if there is one. Any PNG works: palette and
+/// A canvas from a PNG, with the flower on it if there is one. Any PNG works: palette and
 /// low bit depths are expanded, grey is copied to all three channels and alpha is dropped without
 /// compositing (as Pillow's `convert("RGB")`). 16-bit samples keep their high byte, so a 16-bit
 /// image keeps its tones; Pillow instead clips 16-bit grey at 255, which turns most of such an
 /// image white.
 ///
 /// The size in the header is checked against [`MAX_PIXELS`] before anything is allocated.
-pub fn decode_png(bytes: &[u8]) -> Result<(Canvas, Option<String>)> {
-    let mut reader = png_reader(bytes)?;
+pub fn decode_canvas(bytes: &[u8]) -> Result<Canvas> {
+    let mut reader = open_png(bytes)?;
     let (w, h) = (reader.info().width as usize, reader.info().height as usize);
     if w.saturating_mul(h) > MAX_PIXELS {
         return Err(format!(
@@ -93,9 +97,9 @@ pub fn decode_png(bytes: &[u8]) -> Result<(Canvas, Option<String>)> {
         .map_err(|e| format!("bad PNG: {e}"))?;
     buf.truncate(info.buffer_size());
     // a flower may also sit after the pixels, if another program wrote the file again
-    let mut flower = flower_on(reader.info())?;
+    let mut flower = read_flower_chunk(reader.info())?;
     if flower.is_none() && reader.finish().is_ok() {
-        flower = flower_on(reader.info())?;
+        flower = read_flower_chunk(reader.info())?;
     }
     let channels = match info.color_type {
         png::ColorType::Grayscale => 1,
@@ -117,22 +121,21 @@ pub fn decode_png(bytes: &[u8]) -> Result<(Canvas, Option<String>)> {
             })
             .collect()
     };
-    let image = Canvas {
+    Ok(Canvas {
         width: info.width as usize,
         height: info.height as usize,
         pixels: data,
-        flower: None,
-    };
-    Ok((image, flower))
+        flower,
+    })
 }
 
 // ------------------------------------------------------------------------------------ flower
 
-/// A flower as JSON text: compact, but one petal per line, so a diff shows which petals changed.
-/// Keys stay in the order they were written.
-pub fn encode_flower(flower: &Value) -> String {
-    let Some(root) = flower.as_object() else {
-        return format!("{flower}\n");
+/// A flower as JSON: compact, but one petal per line, so a diff shows which petals changed. Keys
+/// stay in the order they were written.
+pub fn encode_flower(flower: &Flower) -> Vec<u8> {
+    let Some(root) = flower.source.as_object() else {
+        return format!("{}\n", flower.source).into_bytes();
     };
     let mut out = String::from("{");
     for (i, (k, v)) in root.iter().enumerate() {
@@ -152,25 +155,25 @@ pub fn encode_flower(flower: &Value) -> String {
         }
     }
     out.push_str("}\n");
-    out
+    out.into_bytes()
 }
 
-/// A flower's JSON, from a `.flower.json` or from the canvas it is on. A PNG must carry a flower:
-/// a canvas without one is an error, never a guess.
-pub fn decode_flower(bytes: &[u8]) -> Result<Value> {
+/// A flower, from a `.flower.json` or from the canvas it is on. A PNG must carry a flower: a
+/// canvas without one is an error, never a guess.
+pub fn decode_flower(bytes: &[u8]) -> Result<Flower> {
     let text = if is_png(bytes) {
-        let mut reader = png_reader(bytes)?;
-        match flower_on(reader.info())? {
+        let mut reader = open_png(bytes)?;
+        match read_flower_chunk(reader.info())? {
             Some(text) => text,
             None => {
                 reader.finish().map_err(|e| format!("bad PNG: {e}"))?;
-                flower_on(reader.info())?.ok_or("no flower on this PNG")?
+                read_flower_chunk(reader.info())?.ok_or("no flower on this PNG")?
             }
         }
     } else {
         String::from_utf8(bytes.to_vec()).map_err(|_| "a flower is UTF-8 JSON")?
     };
-    serde_json::from_str(&text).map_err(|e| format!("flower is not JSON: {e}"))
+    Flower::from_json(&text).map_err(|e| e.0)
 }
 
 // --------------------------------------------------------------------------------------- PLY
@@ -217,8 +220,8 @@ const COAT_COMMENT: &str = "paintcode ";
 ///
 /// The 3DGS kernel is a plain Gaussian, so hardness and paper grain are not in those fields; the
 /// `pc_*` fields after them keep every dab exactly, and the `paintcode` comment keeps the size,
-/// supersample, seed and background, so [`decode_ply`] gives the same coat back.
-pub fn encode_ply(coat: &Coat) -> Vec<u8> {
+/// supersample, seed and background, so [`decode_coat`] gives the same coat back.
+pub fn encode_coat(coat: &Coat) -> Vec<u8> {
     let (width, height, ss) = (coat.width, coat.height, coat.supersample.max(1) as f64);
     let n = coat.dabs.len();
     let s = 2.0 / width.max(height) as f64; // output px -> scene units
@@ -301,23 +304,23 @@ pub fn encode_ply(coat: &Coat) -> Vec<u8> {
 
 /// A PLY read back: each property's column, and the header comments.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Splats {
+pub struct Ply {
     pub names: Vec<String>,
     /// `columns[j][i]` is property `names[j]` of vertex `i`.
     pub columns: Vec<Vec<f64>>,
     pub comments: Vec<String>,
 }
 
-impl Splats {
+impl Ply {
     pub fn column(&self, name: &str) -> Option<&[f64]> {
         let j = self.names.iter().position(|n| n == name)?;
         Some(&self.columns[j])
     }
 }
 
-/// Read a binary little-endian PLY of float and double vertex properties, as [`encode_ply`]
-/// writes and as 3DGS files are.
-pub fn ply_to_splats(ply: &[u8]) -> Result<Splats> {
+/// Read a binary little-endian PLY of float and double vertex properties, as [`encode_coat`]
+/// writes and as 3DGS files are. There is no `encode_ply`: a PLY is written from a coat.
+pub fn decode_ply(ply: &[u8]) -> Result<Ply> {
     let mut pos = 0;
     let mut line = || -> Result<String> {
         let end = ply[pos..]
@@ -380,17 +383,17 @@ pub fn ply_to_splats(ply: &[u8]) -> Result<Splats> {
             at += size;
         }
     }
-    Ok(Splats {
+    Ok(Ply {
         names,
         columns,
         comments,
     })
 }
 
-/// A coat back from the PLY [`encode_ply`] wrote. A 3DGS file from elsewhere has no `pc_*` fields
+/// A coat back from the PLY [`encode_coat`] wrote. A 3DGS file from elsewhere has no `pc_*` fields
 /// and is refused: its Gaussians are not dabs this engine laid.
-pub fn decode_ply(ply: &[u8]) -> Result<Coat> {
-    let s = ply_to_splats(ply)?;
+pub fn decode_coat(ply: &[u8]) -> Result<Coat> {
+    let s = decode_ply(ply)?;
     let meta = s
         .comments
         .iter()
@@ -452,7 +455,7 @@ pub fn decode_ply(ply: &[u8]) -> Result<Coat> {
 mod tests {
     use super::*;
 
-    fn image() -> Canvas {
+    fn canvas() -> Canvas {
         let data: Vec<u8> = (0..7 * 5 * 3).map(|i| (i * 37 % 256) as u8).collect();
         Canvas {
             width: 7,
@@ -464,46 +467,49 @@ mod tests {
 
     #[test]
     fn png_round_trip() {
-        let img = image();
-        assert_eq!(decode_png(&encode_png(&img, None)).unwrap(), (img, None));
+        let c = canvas();
+        assert_eq!(decode_canvas(&encode_canvas(&c)).unwrap(), c);
     }
 
     #[test]
     fn a_flower_rides_on_the_png() {
-        let img = image();
-        let text = r#"{"petals":[{"points":[[1,2.5]],"color":null}],"note":"菊"}"#;
-        let png = encode_png(&img, Some(text));
-        assert_eq!(
-            decode_png(&png).unwrap(),
-            (img.clone(), Some(text.to_string()))
-        );
-        let v: Value = serde_json::from_str(text).unwrap();
-        assert_eq!(decode_flower(&png).unwrap(), v);
-        assert_eq!(decode_flower(text.as_bytes()).unwrap(), v);
-        let bare = encode_png(&img, None);
+        let text = r#"{"petals":[{"points":[[1,2.5]],"color":null}],"seed":-3}"#;
+        let flower = Flower::from_json(text).unwrap();
+        let on = Canvas {
+            flower: Some(text.to_string()),
+            ..canvas()
+        };
+        let png = encode_canvas(&on);
+        assert_eq!(decode_canvas(&png).unwrap(), on);
+        assert_eq!(decode_flower(&png).unwrap(), flower);
+        assert_eq!(decode_flower(text.as_bytes()).unwrap(), flower);
+        let bare = encode_canvas(&canvas());
         assert_eq!(decode_flower(&bare).unwrap_err(), "no flower on this PNG");
         // the flower is compressed: a thousand petals cost far less than their text
         let long = format!("[{}]", vec![r#"{"points":[[1,2.5]]}"#; 1000].join(","));
-        let png = encode_png(&img, Some(&long));
+        let png = encode_canvas(&Canvas {
+            flower: Some(long.clone()),
+            ..canvas()
+        });
         assert!(
             png.len() < bare.len() + long.len() / 10,
             "{} bytes",
             png.len()
         );
-        assert_eq!(decode_png(&png).unwrap().1.unwrap(), long);
+        assert_eq!(decode_canvas(&png).unwrap().flower.unwrap(), long);
         assert!(decode_flower(b"{nope").unwrap_err().contains("not JSON"));
     }
 
     #[test]
     fn a_flower_file_has_one_petal_per_line_and_reads_back() {
-        let text = r#"{"width":3,"petals":[{"points":[[1,2.5]]},{"color":"菊","points":[[485.09081788179355,0.1]]}],"seed":1}"#;
-        let v: Value = serde_json::from_str(text).unwrap();
-        let out = encode_flower(&v);
+        let text = r##"{"width":3,"petals":[{"points":[[1,2.5]]},{"color":"#e8d9b0","points":[[485.09081788179355,0.1]]}],"seed":1}"##;
+        let flower = Flower::from_json(text).unwrap();
+        let out = encode_flower(&flower);
         assert_eq!(
-            out,
-            "{\"width\":3,\"petals\":[\n{\"points\":[[1,2.5]]},\n{\"color\":\"菊\",\"points\":[[485.09081788179355,0.1]]}\n],\"seed\":1}\n"
+            String::from_utf8(out.clone()).unwrap(),
+            "{\"width\":3,\"petals\":[\n{\"points\":[[1,2.5]]},\n{\"color\":\"#e8d9b0\",\"points\":[[485.09081788179355,0.1]]}\n],\"seed\":1}\n"
         );
-        assert_eq!(decode_flower(out.as_bytes()).unwrap(), v);
+        assert_eq!(decode_flower(&out).unwrap(), flower);
     }
 
     fn png_header(w: u32, h: u32) -> Vec<u8> {
@@ -547,7 +553,7 @@ mod tests {
 
     #[test]
     fn a_huge_png_header_is_an_error_before_any_allocation() {
-        let e = decode_png(&png_header(100_000, 100_000)).unwrap_err();
+        let e = decode_canvas(&png_header(100_000, 100_000)).unwrap_err();
         assert!(e.contains("100000x100000 PNG is too large"), "{e}");
     }
 
@@ -562,8 +568,8 @@ mod tests {
             let mut w = enc.write_header().unwrap();
             w.write_image_data(&[0x12, 0x34, 0xff, 0x00]).unwrap();
         }
-        let (img, _) = decode_png(&out).unwrap();
-        assert_eq!(img.pixels, [0x12, 0x12, 0x12, 0xff, 0xff, 0xff]);
+        let c = decode_canvas(&out).unwrap();
+        assert_eq!(c.pixels, [0x12, 0x12, 0x12, 0xff, 0xff, 0xff]);
         // RGBA 8-bit: alpha is dropped, not composited
         let mut out = Vec::new();
         {
@@ -573,7 +579,7 @@ mod tests {
             let mut w = enc.write_header().unwrap();
             w.write_image_data(&[10, 20, 30, 0]).unwrap();
         }
-        assert_eq!(decode_png(&out).unwrap().0.pixels, [10, 20, 30]);
+        assert_eq!(decode_canvas(&out).unwrap().pixels, [10, 20, 30]);
     }
 
     fn coat() -> Coat {
@@ -609,9 +615,9 @@ mod tests {
     #[test]
     fn ply_round_trip_is_lossless() {
         let c = coat();
-        let ply = encode_ply(&c);
-        assert_eq!(decode_ply(&ply).unwrap(), c);
-        let s = ply_to_splats(&ply).unwrap();
+        let ply = encode_coat(&c);
+        assert_eq!(decode_coat(&ply).unwrap(), c);
+        let s = decode_ply(&ply).unwrap();
         assert_eq!(&s.names[..17], PLY_FIELDS);
         // the 3DGS fields are in the pixels of the finished canvas: x = 60 / 2 and 100 / 2
         assert_eq!(s.column("x").unwrap(), [-0.25, 0.25]);
@@ -624,14 +630,14 @@ mod tests {
 
     #[test]
     fn a_ply_that_is_not_a_coat_is_refused() {
-        let ply = encode_ply(&coat());
+        let ply = encode_coat(&coat());
         let text = String::from_utf8_lossy(&ply);
         let cut = text.find("comment paintcode").unwrap();
         let mut other = ply[..cut].to_vec();
         other.extend_from_slice(&ply[cut + text[cut..].find('\n').unwrap() + 1..]);
-        assert!(decode_ply(&other).unwrap_err().contains("not a coat"));
-        assert!(decode_ply(b"plain text").is_err());
-        let png = encode_png(&image(), None);
-        assert_eq!(decode_ply(&png).unwrap_err(), "not a PLY file");
+        assert!(decode_coat(&other).unwrap_err().contains("not a coat"));
+        assert!(decode_coat(b"plain text").is_err());
+        let png = encode_canvas(&canvas());
+        assert_eq!(decode_coat(&png).unwrap_err(), "not a PLY file");
     }
 }
