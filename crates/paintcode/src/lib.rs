@@ -24,6 +24,8 @@ pub mod io;
 pub mod math;
 pub mod petal;
 pub mod render;
+#[cfg(test)]
+mod tests;
 
 pub use flower::{Error, Flower, Result};
 pub use io::{

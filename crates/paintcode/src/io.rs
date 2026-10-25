@@ -9,8 +9,7 @@
 //! | [`encode_canvas`] | [`decode_canvas`] | `.png`         | a canvas, 8-bit RGB, maybe its flower |
 //! | [`encode_coat`]   | [`decode_coat`]   | `.coat.ply`    | a coat: every dab, as 3D Gaussians    |
 //!
-//! [`decode_flower`] also reads the flower on a `.flower.png`, and [`decode_ply`] reads any PLY of
-//! float properties as a table, for 3DGS files from elsewhere.
+//! [`decode_flower`] also reads the flower on a `.flower.png`.
 
 use std::io::Cursor;
 
@@ -179,12 +178,12 @@ pub fn decode_flower(bytes: &[u8]) -> Result<Flower> {
 // --------------------------------------------------------------------------------------- PLY
 
 /// The 3DGS layout, SH degree 0, in the order the original 3DGS code writes it.
-pub const PLY_FIELDS: [&str; 17] = [
+pub(crate) const PLY_FIELDS: [&str; 17] = [
     "x", "y", "z", "nx", "ny", "nz", "f_dc_0", "f_dc_1", "f_dc_2", "opacity", "scale_0", "scale_1",
     "scale_2", "rot_0", "rot_1", "rot_2", "rot_3",
 ];
 /// The dab exactly as it was laid, after the 3DGS fields: doubles, then the colour as floats.
-pub const EXACT_FIELDS: [&str; 12] = [
+const EXACT_FIELDS: [&str; 12] = [
     "pc_x",
     "pc_y",
     "pc_sx",
@@ -304,15 +303,15 @@ pub fn encode_coat(coat: &Coat) -> Vec<u8> {
 
 /// A PLY read back: each property's column, and the header comments.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Ply {
-    pub names: Vec<String>,
+pub(crate) struct Ply {
+    pub(crate) names: Vec<String>,
     /// `columns[j][i]` is property `names[j]` of vertex `i`.
-    pub columns: Vec<Vec<f64>>,
-    pub comments: Vec<String>,
+    pub(crate) columns: Vec<Vec<f64>>,
+    pub(crate) comments: Vec<String>,
 }
 
 impl Ply {
-    pub fn column(&self, name: &str) -> Option<&[f64]> {
+    pub(crate) fn column(&self, name: &str) -> Option<&[f64]> {
         let j = self.names.iter().position(|n| n == name)?;
         Some(&self.columns[j])
     }
@@ -320,7 +319,7 @@ impl Ply {
 
 /// Read a binary little-endian PLY of float and double vertex properties, as [`encode_coat`]
 /// writes and as 3DGS files are. There is no `encode_ply`: a PLY is written from a coat.
-pub fn decode_ply(ply: &[u8]) -> Result<Ply> {
+pub(crate) fn decode_ply(ply: &[u8]) -> Result<Ply> {
     let mut pos = 0;
     let mut line = || -> Result<String> {
         let end = ply[pos..]

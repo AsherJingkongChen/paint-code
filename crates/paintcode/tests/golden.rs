@@ -4,13 +4,12 @@
 //! Each case checks the 8-bit PNG (no value off by more than 1/255, and at most one value in
 //! 10,000 off at all: libm rounding can flip a value that sits on a half step, a real change
 //! moves many), the float canvas within 1e-5 plus half a 16-bit step for the small cases, and
-//! every splat field of the PLY cases. Every case also goes through its coat, written as a PLY and
-//! read back, and must lay the same canvas again bit for bit.
+//! the coat of every case, written as a PLY and read back, which must lay the same canvas again bit
+//! for bit. The 3DGS fields of the PLY cases are checked in src/tests.rs, which can read them.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use paintcode::io::{PLY_FIELDS, decode_ply};
 use paintcode::{
     Flower, RenderOpts, decode_canvas, decode_coat, encode_coat, flower_to_coat, lay_coat,
     paint_flower,
@@ -34,13 +33,6 @@ fn manifest() -> serde_json::Map<String, Value> {
         .as_object()
         .unwrap()
         .clone()
-}
-
-fn max_gap(a: &[f64], b: &[f64], f: impl Fn(f32) -> f32) -> f32 {
-    a.iter()
-        .zip(b)
-        .map(|(x, y)| (f(*x as f32) - f(*y as f32)).abs())
-        .fold(0f32, f32::max)
 }
 
 fn check(name: &str) {
@@ -95,9 +87,6 @@ fn check(name: &str) {
         assert!(gap <= GATE, "{name}: float canvas differs by {gap:e}");
     }
 
-    // the PLY: the same header, and every field as close as the numpy engine's rounding allows
-    // (it rounded x, y, sx, sy to 3 decimals and theta, colour, alpha to 4 before writing; the
-    // core writes them unrounded)
     // the coat, through its file and back: the same canvas, every bit
     let coat = flower_to_coat(&flower, &opts).unwrap();
     let ply = encode_coat(&coat);
@@ -106,45 +95,6 @@ fn check(name: &str) {
         again.rgb == canvas.rgb,
         "{name}: the coat lays another canvas"
     );
-
-    if let Some(f) = case.get("ply").and_then(Value::as_str) {
-        let want = decode_ply(&std::fs::read(golden(f)).unwrap()).unwrap();
-        let got = decode_ply(&ply).unwrap();
-        // the exact fields and the paintcode comment come after what the numpy engine wrote
-        assert_eq!(got.names[..PLY_FIELDS.len()], want.names);
-        let comments: Vec<_> = got
-            .comments
-            .iter()
-            .filter(|c| !c.starts_with("paintcode "))
-            .cloned()
-            .collect();
-        assert_eq!(comments, want.comments);
-        assert_eq!(
-            coat.dabs.len() as u64,
-            case["splats"].as_u64().unwrap(),
-            "{name}: splat count"
-        );
-        let unit = 2.0 / w.max(h) as f32; // px -> scene units
-        for field in PLY_FIELDS {
-            let (a, b) = (got.column(field).unwrap(), want.column(field).unwrap());
-            // opacity is a logit, steep near the clamp: compare it as alpha
-            let sigmoid = |v: f32| 1.0 / (1.0 + (-v).exp());
-            let (tol, gap): (f32, f32) = match field {
-                "x" | "y" => (5e-4 * unit * 1.01, max_gap(a, b, |v| v)),
-                // ln(sx * unit) with sx rounded to 3 decimals, and sx at least 0.5 px
-                "scale_0" | "scale_1" => (1.01e-3, max_gap(a, b, |v| v)),
-                "f_dc_0" | "f_dc_1" | "f_dc_2" => (5e-5 / 0.2820948 * 1.01, max_gap(a, b, |v| v)),
-                "rot_0" | "rot_1" | "rot_2" | "rot_3" => (2.6e-5, max_gap(a, b, |v| v)),
-                "opacity" => (5.1e-5, max_gap(a, b, sigmoid)),
-                // z, the normals and the flat axis are computed the same way, unrounded
-                _ => (1e-6, max_gap(a, b, |v| v)),
-            };
-            assert!(
-                gap <= tol,
-                "{name}: PLY field {field} differs by {gap} (at most {tol})"
-            );
-        }
-    }
 }
 
 #[test]
