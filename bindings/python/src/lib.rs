@@ -111,43 +111,40 @@ fn render_ply<'py>(
     Ok(PyBytes::new(py, &ply))
 }
 
-/// Render a scene to its float canvas: (width, height, bytes), the bytes being height x width x 3
-/// little-endian float32 in 0..1. For checking pixels without 8-bit rounding.
-#[pyfunction]
-#[pyo3(signature = (scene, *, scale = 1.0, supersample = None, base = None))]
-fn render_f32<'py>(
-    py: Python<'py>,
-    scene: &Bound<'py, PyAny>,
-    scale: f64,
-    supersample: Option<i64>,
-    base: Option<&Bound<'py, PyAny>>,
-) -> PyResult<(usize, usize, Bound<'py, PyBytes>)> {
-    let (scene, _) = parse(py, scene)?;
-    let base = base_image(py, base)?;
-    let o = opts(scale, supersample, false);
-    let canvas = py
-        .detach(|| paintcode::render_over(&scene, base.as_ref(), &o))
-        .map_err(value_error)?;
-    let bytes: Vec<u8> = canvas.img.iter().flat_map(|v| v.to_le_bytes()).collect();
-    Ok((canvas.width, canvas.height, PyBytes::new(py, &bytes)))
+/// What goes into a .petal as its preview: a render of the scene, nothing, or a PNG already made.
+#[derive(FromPyObject)]
+enum Preview<'py> {
+    Render(bool),
+    Png(Bound<'py, PyBytes>),
 }
 
 /// Pack a scene as a .petal project (bytes): the strokes, losslessly compressed, never the dabs.
-/// With preview, the scene is rendered once for a small preview.png inside.
+/// preview: True renders the scene for a small preview.png inside, False leaves it out, and PNG
+/// bytes (the render you already have) are used as they are, without rendering again.
 #[pyfunction]
-#[pyo3(signature = (scene, *, preview = true))]
+#[pyo3(signature = (scene, *, preview = Preview::Render(true)))]
 fn scene_to_petal<'py>(
     py: Python<'py>,
     scene: &Bound<'py, PyAny>,
-    preview: bool,
+    preview: Preview<'py>,
 ) -> PyResult<Bound<'py, PyBytes>> {
     let (parsed, value) = parse(py, scene)?;
+    let given = match &preview {
+        Preview::Png(b) => Some(
+            io::png_to_image(b.as_bytes())
+                .map_err(|e| PyValueError::new_err(format!("preview: {e}")))?,
+        ),
+        Preview::Render(_) => None,
+    };
+    let render = matches!(preview, Preview::Render(true));
     let petal = py
         .detach(|| {
-            let image = if preview {
-                Some(paintcode::render(&parsed, &RenderOpts::default())?.to_rgb8())
-            } else {
-                None
+            let image = match given {
+                Some(img) => Some(img),
+                None if render => {
+                    Some(paintcode::render(&parsed, &RenderOpts::default())?.to_rgb8())
+                }
+                None => None,
             };
             paintcode::scene_to_petal(&value, image.as_ref()).map_err(Error)
         })
@@ -168,10 +165,21 @@ fn petal_to_scene<'py>(py: Python<'py>, petal: &[u8]) -> PyResult<Bound<'py, PyA
 fn paintcode_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(render_png, m)?)?;
     m.add_function(wrap_pyfunction!(render_ply, m)?)?;
-    m.add_function(wrap_pyfunction!(render_f32, m)?)?;
     m.add_function(wrap_pyfunction!(scene_to_petal, m)?)?;
     m.add_function(wrap_pyfunction!(petal_to_scene, m)?)?;
-    m.add("PRESETS", paintcode::scene::PRESET_NAMES.to_vec())?;
+    // every preset with its fields, as a scene would write them
+    let presets: serde_json::Map<String, serde_json::Value> = paintcode::scene::PRESET_NAMES
+        .iter()
+        .map(|n| {
+            let b = paintcode::scene::preset(n).expect("a listed preset");
+            (n.to_string(), serde_json::Value::Object(b.to_fields()))
+        })
+        .collect();
+    let presets = m
+        .py()
+        .import("json")?
+        .call_method1("loads", (serde_json::Value::Object(presets).to_string(),))?;
+    m.add("PRESETS", presets)?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
 }

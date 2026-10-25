@@ -127,9 +127,3 @@ pub fn render_over(scene: &Scene, base: Option<&RgbImage>, opts: &RenderOpts) ->
     canvas.downsample(ss as usize);
     Ok(canvas)
 }
-
-/// Scene JSON in, PNG bytes out.
-pub fn render_png(scene_json: &str, opts: &RenderOpts) -> Result<Vec<u8>> {
-    let scene = Scene::from_json(scene_json)?;
-    Ok(image_to_png(&render(&scene, opts)?.to_rgb8()))
-}

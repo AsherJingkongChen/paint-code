@@ -31,12 +31,6 @@ def test_a_scene_may_be_json_text():
     assert paintcode.render_png(json.dumps(SCENE)) == paintcode.render_png(SCENE)
 
 
-def test_the_float_canvas_has_its_shape():
-    w, h, data = paintcode.render_f32(SCENE, scale=0.5)
-    img = np.frombuffer(data, "<f4").reshape(h, w, 3)
-    assert (w, h) == (80, 45) and 0 <= img.min() and img.max() <= 1
-
-
 def test_a_base_image_from_bytes_or_a_path():
     base = GOLDEN / "base.png"
     by_path = paintcode.render_png(SCENE, base=base)
@@ -132,8 +126,22 @@ def test_options_are_keyword_only():
         paintcode.render_png(SCENE, 2.0)
 
 
-def test_the_presets_are_listed():
+def test_the_presets_show_their_fields():
     assert {"ink", "filbert", "blender"} <= set(paintcode.PRESETS)
+    filbert = paintcode.PRESETS["filbert"]
+    assert filbert["size"] == 5.2 and filbert["hardness"] == 0.8 and filbert["angle"] is None
+    # a preset's fields written out in the scene paint the same as naming the preset
+    by_name = dict(SCENE, strokes=[{"brush": "filbert", "color": "#a33", "points": [[10, 10], [150, 80]]}])
+    by_fields = dict(SCENE, strokes=[{"brush": filbert, "color": "#a33", "points": [[10, 10], [150, 80]]}])
+    assert paintcode.render_png(by_name) == paintcode.render_png(by_fields)
+
+
+def test_a_petal_can_reuse_a_render_as_its_preview():
+    png = paintcode.render_png(SCENE)
+    reused = paintcode.scene_to_petal(SCENE, preview=png)
+    assert reused == paintcode.scene_to_petal(SCENE)        # the same preview, one render fewer
+    with pytest.raises(ValueError, match="preview"):
+        paintcode.scene_to_petal(SCENE, preview=b"not a png")
 
 
 def test_a_project_renders_like_its_scene():

@@ -76,15 +76,6 @@ pub struct Footprint {
     y_max: usize,
 }
 
-impl Footprint {
-    /// Every evaluated pixel as (x, y, kernel value), row by row.
-    pub fn pixels(&self) -> impl Iterator<Item = (usize, usize, f32)> + '_ {
-        self.spans
-            .iter()
-            .flat_map(move |sp| (0..sp.len).map(move |i| (sp.x0 + i, sp.y, self.k[sp.off + i])))
-    }
-}
-
 /// The wet paint under a dab: its kernel-weighted colour and how wet that area is (0..1).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Pickup {

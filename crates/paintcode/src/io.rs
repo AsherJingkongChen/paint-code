@@ -84,7 +84,7 @@ pub fn png_to_image(png_bytes: &[u8]) -> Result<RgbImage> {
 
 /// A smaller copy that fits in `max` x `max`, by averaging the source pixels under each output
 /// pixel. Images that already fit come back unchanged. For previews, not for paintings.
-pub fn thumbnail(image: &RgbImage, max: usize) -> RgbImage {
+fn thumbnail(image: &RgbImage, max: usize) -> RgbImage {
     let (w, h) = (image.width, image.height);
     if w <= max && h <= max || w == 0 || h == 0 {
         return image.clone();

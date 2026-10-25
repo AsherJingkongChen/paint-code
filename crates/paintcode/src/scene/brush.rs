@@ -231,6 +231,36 @@ impl Brush {
         Ok(b)
     }
 
+    /// Every field by its scene name, the inverse of [`Brush::with_fields`]: what a preset is,
+    /// written the way a scene would write it (`angle` and `half_life` may be null).
+    pub fn to_fields(&self) -> Map<String, Value> {
+        let opt = |v: Option<f64>| v.map_or(Value::Null, Value::from);
+        let values = [
+            Value::from(self.size),
+            Value::from(self.aspect),
+            opt(self.angle),
+            Value::from(self.hardness),
+            Value::from(self.flow),
+            Value::from(self.spacing),
+            Value::from(self.min_size),
+            Value::from(self.size_gamma),
+            Value::from(self.min_flow),
+            Value::from(self.flow_gamma),
+            Value::from(self.tilt_stretch),
+            Value::from(self.size_jitter),
+            Value::from(self.angle_jitter),
+            Value::from(self.pos_jitter),
+            Value::from(self.flow_jitter),
+            Value::from(self.load),
+            opt(self.half_life),
+            Value::from(self.min_load),
+            Value::from(self.pickup),
+            Value::from(self.grain),
+            Value::from(self.grain_scale),
+        ];
+        FIELDS.iter().map(|k| k.to_string()).zip(values).collect()
+    }
+
     /// Sizes and distances scaled for a larger render.
     pub fn scaled(&self, scale: f64) -> Brush {
         if scale == 1.0 {
@@ -295,6 +325,21 @@ const FIELDS: [&str; 21] = [
     "grain",
     "grain_scale",
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fields_round_trip_for_every_preset() {
+        for name in PRESET_NAMES {
+            let b = preset(name).unwrap();
+            let fields = b.to_fields();
+            assert_eq!(fields.len(), FIELDS.len());
+            assert_eq!(Brush::default().with_fields(&fields).unwrap(), b, "{name}");
+        }
+    }
+}
 
 fn sorted_presets() -> Vec<&'static str> {
     let mut v = PRESET_NAMES.to_vec();

@@ -25,8 +25,10 @@ Scene = Union[str, dict[str, Any]]
 Base = Union[bytes, str, os.PathLike[str]]
 """A base image: PNG bytes, or a path to a PNG."""
 
-PRESETS: list[str]
-"""Brush presets: ink, pencil, nib, round, filbert, flat, airbrush, dry, blender."""
+PRESETS: dict[str, dict[str, Any]]
+"""Brush presets by name (ink, pencil, nib, round, filbert, flat, airbrush, dry, blender), each
+with every brush field. A stroke may name a preset and override any field, e.g.
+{"brush": "filbert", "size": 12}; or copy one into the scene's "brushes" and change it there."""
 
 __version__: str
 
@@ -49,17 +51,13 @@ def render_ply(
     Splatting layout (SH degree 0). Paint order becomes depth, so splat viewers composite the dabs
     in the order they were painted when looking at the plane. Options as render_png."""
 
-def render_f32(
-    scene: Scene, *, scale: float = 1.0, supersample: int | None = None, base: Base | None = None
-) -> tuple[int, int, bytes]:
-    """Render a scene to its float canvas: (width, height, data), data being height x width x 3
-    little-endian float32 in 0..1, e.g. numpy.frombuffer(data, "<f4").reshape(height, width, 3).
-    Options as render_png."""
-
-def scene_to_petal(scene: Scene, *, preview: bool = True) -> bytes:
+def scene_to_petal(scene: Scene, *, preview: bool | bytes = True) -> bytes:
     """Pack a scene as a .petal project: a ZIP with meta.json, scene.json (exactly as given, keys
-    in order) and, with preview, a small preview.png. It stores strokes, never dabs; the same
-    scene always gives the same bytes."""
+    in order) and a small preview.png. It stores strokes, never dabs; the same inputs always give
+    the same bytes.
+
+    preview True renders the scene for the preview; False leaves it out; PNG bytes (a render you
+    already have, e.g. from render_png) are shrunk and used without rendering again."""
 
 def petal_to_scene(petal: bytes) -> dict[str, Any]:
     """The scene inside a .petal project, keys in their written order."""

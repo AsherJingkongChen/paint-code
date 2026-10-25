@@ -14,10 +14,9 @@ from ._core import (
     PRESETS,
     __version__,
     petal_to_scene,
-    render_f32,
     render_ply,
     render_png,
     scene_to_petal,
 )
 
-__all__ = ["PRESETS", "petal_to_scene", "render_f32", "render_ply", "render_png", "scene_to_petal"]
+__all__ = ["PRESETS", "petal_to_scene", "render_ply", "render_png", "scene_to_petal"]

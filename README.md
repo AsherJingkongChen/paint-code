@@ -30,7 +30,7 @@ png = paintcode.render_png(scene, scale=2)           # coordinates and brush siz
 png = paintcode.render_png(scene, supersample=3)     # supersample hard edges
 png = paintcode.render_png(scene, base="old.png")    # paint over a PNG, at its size (treated as dry paint)
 ply = paintcode.render_ply(scene)                    # every dab as a splat; same options
-petal = paintcode.scene_to_petal(scene)              # the project: strokes, never dabs
+petal = paintcode.scene_to_petal(scene, preview=png)  # the project: strokes, never dabs; reuses the render
 scene = paintcode.petal_to_scene(petal)              # a project renders like its scene
 ```
 
@@ -105,7 +105,7 @@ The tests carry a separate, plain rasteriser that reads only the PLY. For a pain
 | `pickup` | share of the wet paint under the brush mixed into the carried colour, per radius of travel |
 | `grain`, `grain_scale` | paper tooth fixed to the canvas, modulating every dab |
 
-Presets: `ink`, `pencil`, `nib`, `round`, `filbert`, `flat`, `airbrush`, `dry`, `blender`.
+Presets: `ink`, `pencil`, `nib`, `round`, `filbert`, `flat`, `airbrush`, `dry`, `blender`. `paintcode.PRESETS` holds each one with every field, written as a scene would write it.
 
 ![Every preset drawing the same curve](examples/brush_sheet.png)
 

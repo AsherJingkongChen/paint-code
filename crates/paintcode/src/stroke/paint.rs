@@ -29,14 +29,6 @@ struct Plan {
     mix_exp: f64,
 }
 
-/// The dabs of a stroke, in order, before any pixel is touched (for tests and tools).
-pub fn layout(seed: i64, sid: i64, brush: &Brush, points: &[[f64; 4]], smooth: bool) -> Vec<Dab> {
-    plan(seed, brush, sid, &samples(points, brush, smooth))
-        .into_iter()
-        .map(|p| p.dab)
-        .collect()
-}
-
 fn plan(seed: i64, brush: &Brush, sid: i64, path: &[Sample]) -> Vec<Plan> {
     let jitter = |n: i64, slot: i64, amount: f64| {
         -amount + 2.0 * amount * rng::uniform(&[seed, rng::JITTER, sid, n, slot])
