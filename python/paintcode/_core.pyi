@@ -18,19 +18,23 @@ color None loads the brush with the paint under its first touch (a smudge). Any 
 be set on a petal directly. The same flower always gives the same pixels.
 
 The files: a flower is a .flower.json, or rides on its canvas as a .flower.png; a canvas is a
-.png; a coat is a .coat.ply. Files are told apart by their bytes, not their names. A mistake in a
+.png; a coat is a .coat.ply. A load_ takes the path of a file and tells formats apart by its bytes,
+not its name; a save_ takes a pathname, the path without a suffix, adds the suffix of what it
+writes and returns the path written. A mistake in a
 flower or a file is a ValueError that names the petal or the path.
 
 A function with more than one parameter takes them by keyword only.
 """
 
 import os
+import pathlib
 from typing import Any, Union
 
 Flower = dict[str, Any]
 """A flower, as a dict (anything json.dumps takes)."""
 
 Path = Union[str, os.PathLike[str]]
+"""A path, or for a save_ a pathname: the path without its suffix."""
 
 BRUSHES: dict[str, dict[str, Any]]
 """The brushes by name (ink, pencil, nib, round, filbert, flat, airbrush, dry, blender), each with
@@ -72,21 +76,22 @@ def load_flower(path: Path) -> Flower:
     """The flower in a .flower.json, or on a .flower.png; keys in their written order. A PNG with
     no flower on it is an error."""
 
-def save_flower(*, flower: Flower, path: Path) -> None:
-    """Write a flower as JSON, one petal per line. A flower the engine would refuse is refused."""
+def save_flower(*, flower: Flower, pathname: Path) -> pathlib.Path:
+    """Write a flower as JSON, one petal per line, at pathname.flower.json. A flower the engine
+    would refuse is refused."""
 
 def load_canvas(path: Path) -> Canvas:
     """The canvas in a PNG: only the pixels, whether or not a flower is on it (load_flower takes
     the flower). Any PNG opens: grey, palette, alpha and 16-bit images become 8-bit RGB."""
 
-def save_canvas(*, canvas: Canvas, path: Path) -> None:
-    """Write a canvas as a PNG, with its flower if one is on it."""
+def save_canvas(*, canvas: Canvas, pathname: Path) -> pathlib.Path:
+    """Write a canvas as a PNG at pathname.png, or with its flower on it at pathname.flower.png."""
 
 def load_coat(path: Path) -> Coat:
     """The coat in a .coat.ply. A 3DGS file from elsewhere is not a coat and is refused."""
 
-def save_coat(*, coat: Coat, path: Path) -> None:
-    """Write a coat as a binary PLY in the 3D Gaussian Splatting layout (SH degree 0), which any
+def save_coat(*, coat: Coat, pathname: Path) -> pathlib.Path:
+    """Write a coat at pathname.coat.ply, a binary PLY in the 3D Gaussian Splatting layout (SH degree 0), which any
     splat viewer opens: paint order becomes depth, so the dabs composite in the order they were
     laid when looking at the plane. Every dab is also kept exactly, so load_coat gives the same
     coat back."""

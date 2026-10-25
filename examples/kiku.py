@@ -103,6 +103,6 @@ for i in range(30):
 
 flower = {"width": W, "height": H, "background": "#2a2f4a", "seed": 24, "petals": S}
 out = Path(__file__).with_suffix("")
-save_flower(flower=flower, path=out.with_suffix(".flower.json"))
-save_canvas(canvas=flower_to_canvas(flower=flower, supersample=2), path=out.with_suffix(".png"))
+save_flower(flower=flower, pathname=out)
+save_canvas(canvas=flower_to_canvas(flower=flower, supersample=2), pathname=out)
 print(len(S), "petals")

@@ -1,8 +1,9 @@
 //! `paintcode._core`: the engine, seen from Python. This is the whole Python package; the files
 //! in `python/paintcode/` only re-export it and describe it (`_core.pyi`).
 //!
-//! A flower is a dict (anything `json.dumps` takes); paths are a str or an `os.PathLike`, and the
-//! files are read and written here, in Rust. A function with more than one parameter takes them
+//! A flower is a dict (anything `json.dumps` takes). A load_ takes the path of a file; a save_
+//! takes a pathname, the path without its suffix, and adds the suffix of what it writes. Both are a
+//! str or an `os.PathLike`, and the files are read and written here, in Rust. A function with more than one parameter takes them
 //! by keyword only.
 
 use std::path::{Path, PathBuf};
@@ -16,6 +17,15 @@ use serde_json::Value;
 
 fn value_error(e: Error) -> PyErr {
     PyValueError::new_err(e.0)
+}
+
+/// Write `bytes` at `pathname` plus `suffix`, and give back the path written.
+fn write(pathname: PathBuf, suffix: &str, bytes: &[u8]) -> PyResult<PathBuf> {
+    let mut path = pathname.into_os_string();
+    path.push(suffix);
+    let path = PathBuf::from(path);
+    std::fs::write(&path, bytes)?;
+    Ok(path)
 }
 
 /// A file's mistake, named with its path.
@@ -186,13 +196,16 @@ fn load_flower<'py>(py: Python<'py>, path: PathBuf) -> PyResult<Bound<'py, PyAny
     to_dict(py, &value)
 }
 
-/// Write a flower as JSON, one petal per line.
+/// Write a flower as JSON, one petal per line, at `pathname.flower.json`.
 #[pyfunction]
-#[pyo3(signature = (*, flower, path))]
-fn save_flower(py: Python<'_>, flower: &Bound<'_, PyAny>, path: PathBuf) -> PyResult<()> {
+#[pyo3(signature = (*, flower, pathname))]
+fn save_flower(py: Python<'_>, flower: &Bound<'_, PyAny>, pathname: PathBuf) -> PyResult<PathBuf> {
     let (_, value) = flower_value(py, flower)?;
-    std::fs::write(&path, io::encode_flower(&value))?;
-    Ok(())
+    write(
+        pathname,
+        ".flower.json",
+        io::encode_flower(&value).as_bytes(),
+    )
 }
 
 /// The canvas in a PNG: only the pixels, whether or not a flower is on it (load_flower takes the
@@ -204,14 +217,18 @@ fn load_canvas(path: PathBuf) -> PyResult<Canvas> {
     Ok(Canvas::bare(image))
 }
 
-/// Write a canvas as a PNG, with its flower if one is on it.
+/// Write a canvas as a PNG at `pathname.png`, or with its flower on it at `pathname.flower.png`.
 #[pyfunction]
-#[pyo3(signature = (*, canvas, path))]
-fn save_canvas(py: Python<'_>, canvas: PyRef<'_, Canvas>, path: PathBuf) -> PyResult<()> {
+#[pyo3(signature = (*, canvas, pathname))]
+fn save_canvas(py: Python<'_>, canvas: PyRef<'_, Canvas>, pathname: PathBuf) -> PyResult<PathBuf> {
     let c: &Canvas = &canvas;
     let png = py.detach(|| io::encode_png(&c.image, c.flower.as_deref()));
-    std::fs::write(&path, png)?;
-    Ok(())
+    let suffix = if c.flower.is_some() {
+        ".flower.png"
+    } else {
+        ".png"
+    };
+    write(pathname, suffix, &png)
 }
 
 /// The coat in a `.coat.ply`. A 3DGS file from elsewhere is not a coat and is refused.
@@ -223,15 +240,14 @@ fn load_coat(path: PathBuf) -> PyResult<Coat> {
         .map_err(|e| file_error(&path, e))
 }
 
-/// Write a coat as a binary PLY in the 3DGS layout that any splat viewer opens, with every dab
-/// kept exactly, so load_coat gives the same coat back.
+/// Write a coat at `pathname.coat.ply`, a binary PLY in the 3DGS layout that any splat viewer
+/// opens, with every dab kept exactly, so load_coat gives the same coat back.
 #[pyfunction]
-#[pyo3(signature = (*, coat, path))]
-fn save_coat(py: Python<'_>, coat: PyRef<'_, Coat>, path: PathBuf) -> PyResult<()> {
+#[pyo3(signature = (*, coat, pathname))]
+fn save_coat(py: Python<'_>, coat: PyRef<'_, Coat>, pathname: PathBuf) -> PyResult<PathBuf> {
     let coat: &paintcode::Coat = &coat.0;
     let ply = py.detach(|| io::encode_ply(coat));
-    std::fs::write(&path, ply)?;
-    Ok(())
+    write(pathname, ".coat.ply", &ply)
 }
 
 // ------------------------------------------------------------------------------- transforms

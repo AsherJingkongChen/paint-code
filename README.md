@@ -37,17 +37,17 @@ canvas = pc.flower_to_canvas(flower=flower, supersample=3)   # supersample hard 
 coat = pc.flower_to_coat(flower=flower)                      # every dab; same options
 canvas = pc.coat_to_canvas(coat)                             # the same canvas, bit for bit
 
-pc.save_flower(flower=flower, path="sketch.flower.json")
-pc.save_canvas(canvas=canvas, path="sketch.png")
-pc.save_canvas(canvas=pc.flower_on_canvas(flower=flower, canvas=canvas), path="sketch.flower.png")
-pc.save_coat(coat=coat, path="sketch.coat.ply")
+pc.save_flower(flower=flower, pathname="sketch")            # sketch.flower.json
+pc.save_canvas(canvas=canvas, pathname="sketch")            # sketch.png
+pc.save_canvas(canvas=pc.flower_on_canvas(flower=flower, canvas=canvas), pathname="sketch")  # sketch.flower.png
+pc.save_coat(coat=coat, pathname="sketch")                  # sketch.coat.ply
 
 flower = pc.load_flower("sketch.flower.png")                 # the flower, from its file or its canvas
 canvas = pc.load_canvas("sketch.flower.png")                 # only the pixels
 canvas.peek(x=20, y=100), canvas.crop(x=0, y=0, width=200, height=100)
 ```
 
-`_to_` turns one thing into another, `_on_` and `_off_` put a flower on a canvas and take it off, and `load_` and `save_` take paths; the files are read and written in Rust. A function with more than one parameter takes them by keyword. Mistakes raise `ValueError` with a message that names the petal, the field or the file. `help(paintcode._core)` and the type stub `paintcode/_core.pyi` describe every function; the package has no dependencies of its own. There is no command line: the engine is a library, and Python (later JavaScript) is how it is driven.
+`_to_` turns one thing into another, `_on_` and `_off_` put a flower on a canvas and take it off, `load_` takes the path of a file, and `save_` takes a pathname, adds the suffix of what it writes and returns the path written; the files are read and written in Rust. A function with more than one parameter takes them by keyword. Mistakes raise `ValueError` with a message that names the petal, the field or the file. `help(paintcode._core)` and the type stub `paintcode/_core.pyi` describe every function; the package has no dependencies of its own. There is no command line: the engine is a library, and Python (later JavaScript) is how it is driven.
 
 | file | what it is |
 |---|---|

@@ -28,7 +28,7 @@ for j in range(6):
 flower = {"width": W, "height": 40 + ROW * len(names), "background": "#f4efe6", "seed": 2,
           "petals": petals}
 out = Path(__file__).with_suffix("")
-save_flower(flower=flower, path=out.with_suffix(".flower.json"))
+save_flower(flower=flower, pathname=out)
 img = Image.open(io.BytesIO(flower_to_canvas(flower=flower).png())).convert("RGB")
 d = ImageDraw.Draw(img)
 for i, name in enumerate(names):

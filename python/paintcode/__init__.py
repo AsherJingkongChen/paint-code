@@ -7,8 +7,8 @@ The coat over the background is the canvas, the pixels you see.
     import paintcode as pc
     flower = pc.load_flower("kiku.flower.json")         # or a .flower.png
     canvas = pc.flower_to_canvas(flower=flower)
-    pc.save_canvas(canvas=pc.flower_on_canvas(flower=flower, canvas=canvas), path="kiku.flower.png")
-    pc.save_coat(coat=pc.flower_to_coat(flower=flower), path="kiku.coat.ply")
+    pc.save_canvas(canvas=pc.flower_on_canvas(flower=flower, canvas=canvas), pathname="kiku")
+    pc.save_coat(coat=pc.flower_to_coat(flower=flower), pathname="kiku")   # kiku.coat.ply
 
 The engine is Rust (paintcode._core); this package is its Python face. See help(paintcode._core)
 or the README for the flower format.

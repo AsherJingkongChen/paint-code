@@ -37,8 +37,8 @@ def test_a_path_may_be_a_str_or_a_pathlike(tmp_path):
 def test_a_flower_rides_on_its_canvas(tmp_path):
     canvas = paintcode.flower_to_canvas(flower=FLOWER)
     on = paintcode.flower_on_canvas(flower=FLOWER, canvas=canvas)
-    path = tmp_path / "features.flower.png"
-    paintcode.save_canvas(canvas=on, path=path)
+    path = paintcode.save_canvas(canvas=on, pathname=tmp_path / "features")
+    assert path == tmp_path / "features.flower.png"
     back = paintcode.load_flower(path)
     assert back == FLOWER and list(back) == list(FLOWER)
     assert paintcode.flower_off_canvas(on) == FLOWER
@@ -50,8 +50,8 @@ def test_a_flower_rides_on_its_canvas(tmp_path):
 
 
 def test_a_flower_file_round_trip_keeps_its_key_order(tmp_path):
-    path = tmp_path / "features.flower.json"
-    paintcode.save_flower(flower=FLOWER, path=path)
+    path = paintcode.save_flower(flower=FLOWER, pathname=tmp_path / "features")
+    assert path == tmp_path / "features.flower.json"
     back = paintcode.load_flower(path)
     assert back == FLOWER and list(back) == list(FLOWER)
     assert path.read_text().count("\n") == len(FLOWER["petals"]) + 2   # one petal per line
@@ -64,8 +64,8 @@ def test_the_example_flowers_open():
 
 def test_the_coat_file_has_one_splat_per_dab_and_reads_back(tmp_path):
     coat = paintcode.flower_to_coat(flower=FLOWER, supersample=2)
-    path = tmp_path / "features.coat.ply"
-    paintcode.save_coat(coat=coat, path=path)
+    path = paintcode.save_coat(coat=coat, pathname=str(tmp_path / "features"))
+    assert path == tmp_path / "features.coat.ply"
     ply = path.read_bytes()
     head = ply[: ply.index(b"end_header")].decode()
     assert "comment canvas 160 90" in head
@@ -82,13 +82,14 @@ def test_mistakes_are_value_errors_that_name_the_petal_or_the_file(tmp_path):
     with pytest.raises(ValueError, match="petal 0.*sise"):
         paintcode.flower_to_canvas(flower=bad)
     with pytest.raises(ValueError, match="petal 0: petal has no points"):
-        paintcode.save_flower(flower=dict(FLOWER, petals=[{"brush": "ink"}]), path=tmp_path / "x")
+        paintcode.save_flower(flower=dict(FLOWER, petals=[{"brush": "ink"}]), pathname=tmp_path / "x")
     with pytest.raises(ValueError, match="width must be a whole number"):
         paintcode.flower_to_canvas(flower={"width": 200.7, "height": 90})
     (tmp_path / "bad.flower.json").write_text("{not json")
     with pytest.raises(ValueError, match="bad.flower.json: flower is not JSON"):
         paintcode.load_flower(tmp_path / "bad.flower.json")
-    paintcode.save_canvas(canvas=paintcode.flower_to_canvas(flower=FLOWER), path=tmp_path / "bare.png")
+    bare = paintcode.save_canvas(canvas=paintcode.flower_to_canvas(flower=FLOWER), pathname=tmp_path / "bare")
+    assert bare.name == "bare.png"
     with pytest.raises(ValueError, match="bare.png: no flower on this PNG"):
         paintcode.load_flower(tmp_path / "bare.png")
     with pytest.raises(ValueError, match="not a PLY"):
