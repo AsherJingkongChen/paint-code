@@ -3,8 +3,8 @@
 
 use paintcode::flower::{Brush, Color, preset};
 use paintcode::petal::{Options, paint_petal, samples};
-use paintcode::render::{Canvas, Coat, Dab, Spans};
-use paintcode::{Flower, RenderOpts, coat_to_canvas, flower_to_canvas, flower_to_coat};
+use paintcode::render::{Coat, Dab, Spans, WetCanvas};
+use paintcode::{Flower, RenderOpts, flower_to_coat, lay_coat, paint_flower};
 use serde_json::{Value, json};
 
 fn flower(v: Value) -> Flower {
@@ -16,8 +16,8 @@ fn small(seed: i64) -> Value {
                         "points": [[10, 40, 0.2], [60, 20, 1.0], [110, 60, 0.7], [150, 40, 0.1]]}]})
 }
 
-fn paint(v: Value, opts: RenderOpts) -> Canvas {
-    flower_to_canvas(&flower(v), &opts).unwrap()
+fn paint(v: Value, opts: RenderOpts) -> WetCanvas {
+    paint_flower(&flower(v), &opts).unwrap()
 }
 
 fn coat(v: Value, opts: RenderOpts) -> Coat {
@@ -32,24 +32,24 @@ fn row(points: &[[f64; 2]]) -> Vec<[f64; 4]> {
     points.iter().map(|p| [p[0], p[1], 1.0, 0.0]).collect()
 }
 
-fn petal(c: &mut Canvas, b: &Brush, color: Color, pts: &[[f64; 4]]) -> paintcode::Painted {
+fn petal(c: &mut WetCanvas, b: &Brush, color: Color, pts: &[[f64; 4]]) -> paintcode::Painted {
     paint_petal(c, b, &color, pts, true, Options::default())
 }
 
-fn blank(w: usize, h: usize, bg: &str) -> Canvas {
-    Canvas::new(w, h, rgb(bg), 0).unwrap()
+fn blank(w: usize, h: usize, bg: &str) -> WetCanvas {
+    WetCanvas::new(w, h, rgb(bg), 0).unwrap()
 }
 
 #[test]
 fn same_flower_same_pixels() {
     let o = RenderOpts::default();
-    assert!(paint(small(3), o).img == paint(small(3), o).img);
+    assert!(paint(small(3), o).rgb == paint(small(3), o).rgb);
 }
 
 #[test]
 fn seed_changes_jitter() {
     let o = RenderOpts::default();
-    assert!(paint(small(3), o).img != paint(small(4), o).img);
+    assert!(paint(small(3), o).rgb != paint(small(4), o).rgb);
 }
 
 #[test]
@@ -69,9 +69,9 @@ fn duplicate_points_do_not_change_the_petal() {
     petal(&mut c1, &b, Color::Rgb([0.0; 3]), &pts);
     petal(&mut c2, &b, Color::Rgb([0.0; 3]), &dup);
     let gap = c1
-        .img
+        .rgb
         .iter()
-        .zip(&c2.img)
+        .zip(&c2.rgb)
         .map(|(a, b)| (a - b).abs())
         .fold(0f32, f32::max);
     assert!(gap < 1e-6, "{gap}");
@@ -118,7 +118,7 @@ fn pickup_does_not_depend_on_dab_spacing() {
         // wet black paint already on the right half
         for y in 0..40 {
             for x in 150..300 {
-                c.img[(y * 300 + x) * 3..(y * 300 + x) * 3 + 3].fill(0.0);
+                c.rgb[(y * 300 + x) * 3..(y * 300 + x) * 3 + 3].fill(0.0);
                 c.wet[y * 300 + x] = 1.0;
             }
         }
@@ -175,7 +175,7 @@ fn a_dab_is_a_gaussian() {
     let (fp, _) = c.footprint(&d, Spans::Ellipse, None);
     c.composite(&[(&fp, d.rgb)]);
     // one sigma from the centre (pixel centres at x + 0.5) the value is exp(-0.5)
-    let v = c.img[(31 * 64 + 32 + 6 - 1) * 3] as f64;
+    let v = c.rgb[(31 * 64 + 32 + 6 - 1) * 3] as f64;
     let want = (-0.5 * ((5.5f64 / 6.0).powi(2) + (0.5f64 / 6.0).powi(2))).exp();
     assert!((v - want).abs() / want < 1e-4, "{v} {want}");
 }
@@ -204,7 +204,7 @@ fn a_smudge_starts_with_the_colour_under_it() {
     let mut c = blank(100, 40, "#ffffff");
     for y in 0..40 {
         for x in 0..50 {
-            c.img[(y * 100 + x) * 3..(y * 100 + x) * 3 + 3].copy_from_slice(&[1.0, 0.0, 0.0]);
+            c.rgb[(y * 100 + x) * 3..(y * 100 + x) * 3 + 3].copy_from_slice(&[1.0, 0.0, 0.0]);
             c.wet[y * 100 + x] = 1.0;
         }
     }
@@ -214,7 +214,7 @@ fn a_smudge_starts_with_the_colour_under_it() {
         Color::Smudge,
         &row(&[[20., 20.], [80., 20.]]),
     );
-    let px = &c.img[(20 * 100 + 60) * 3..(20 * 100 + 60) * 3 + 3];
+    let px = &c.rgb[(20 * 100 + 60) * 3..(20 * 100 + 60) * 3 + 3];
     assert!(
         px[0] > 0.9 && px[1] < 0.9,
         "red dragged into the white: {px:?}"
@@ -237,7 +237,7 @@ fn hardness_sharpens_the_edge() {
             Color::Rgb([1.0; 3]),
             &row(&[[20., 30.], [180., 30.]]),
         );
-        let col: Vec<f32> = (0..30).map(|y| c.img[(y * 200 + 100) * 3]).collect();
+        let col: Vec<f32> = (0..30).map(|y| c.rgb[(y * 200 + 100) * 3]).collect();
         let first = |t: f32| col.iter().position(|&v| v > t).unwrap() as i64;
         first(0.9) - first(0.1)
     };
@@ -263,7 +263,7 @@ fn the_same_size_looks_the_same_at_any_hardness() {
                 &row(&[[20., 40.], [180., 40.]]),
             );
             (0..80)
-                .filter(|&y| c.img[(y * 200 + 100) * 3] > 0.5)
+                .filter(|&y| c.rgb[(y * 200 + 100) * 3] > 0.5)
                 .count()
         })
         .collect();
@@ -283,12 +283,12 @@ fn supersampling_keeps_the_same_painting() {
     );
     assert_eq!((a.width, a.height), (b.width, b.height));
     let mean = a
-        .img
+        .rgb
         .iter()
-        .zip(&b.img)
+        .zip(&b.rgb)
         .map(|(x, y)| (x - y).abs() as f64)
         .sum::<f64>()
-        / a.img.len() as f64;
+        / a.rgb.len() as f64;
     assert!(mean < 0.01, "{mean}");
 }
 
@@ -329,10 +329,10 @@ fn a_coat_lays_the_same_canvas_again() {
             ..RenderOpts::default()
         };
         let c = paint(busy(), opts);
-        let back = coat_to_canvas(&coat(busy(), opts)).unwrap();
+        let back = lay_coat(&coat(busy(), opts)).unwrap();
         assert_eq!((back.width, back.height), (c.width, c.height));
         assert!(
-            back.img == c.img,
+            back.rgb == c.rgb,
             "scale {scale}, supersample {supersample}"
         );
     }
@@ -347,13 +347,13 @@ fn a_coat_survives_its_ply() {
     let c = coat(busy(), opts);
     let back = paintcode::decode_ply(&paintcode::encode_ply(&c)).unwrap();
     assert_eq!(back, c);
-    assert!(coat_to_canvas(&back).unwrap().img == paint(busy(), opts).img);
+    assert!(lay_coat(&back).unwrap().rgb == paint(busy(), opts).rgb);
 }
 
 #[test]
 fn a_flower_rides_on_its_canvas() {
     let text = busy().to_string();
-    let image = paint(busy(), RenderOpts::default()).to_rgb8();
+    let image = paint(busy(), RenderOpts::default()).dry();
     let png = paintcode::encode_png(&image, Some(&text));
     assert_eq!(paintcode::decode_flower(&png).unwrap(), busy());
     let (pixels, on) = paintcode::decode_png(&png).unwrap();
@@ -460,7 +460,7 @@ fn a_soft_painting_round_trips_through_the_ply() {
     assert_eq!((w, h), (c.width, c.height));
     let gap = back
         .iter()
-        .zip(&c.img)
+        .zip(&c.rgb)
         .map(|(a, b)| (a - b).abs())
         .fold(0f32, f32::max);
     assert!(gap < 2.0 / 255.0, "{gap}");
@@ -471,7 +471,7 @@ fn a_soft_painting_round_trips_through_the_ply() {
 fn error(v: Value, opts: RenderOpts) -> String {
     match Flower::from_value(&v) {
         Err(e) => e.0,
-        Ok(s) => flower_to_canvas(&s, &opts).unwrap_err().0,
+        Ok(s) => paint_flower(&s, &opts).unwrap_err().0,
     }
 }
 
@@ -518,7 +518,7 @@ fn canvas_numbers_must_be_whole() {
         assert!(e.starts_with(k), "{e}");
     }
     assert!(Flower::from_value(&json!({"width": 100.0, "height": 50})).is_ok());
-    let e = flower_to_canvas(
+    let e = paint_flower(
         &flower(json!({"petals": []})),
         &RenderOpts {
             supersample: 0,
@@ -539,7 +539,7 @@ fn the_old_names_are_explained() {
 #[test]
 fn far_points_are_measured_against_the_flower() {
     let v = json!({"width": 10, "height": 10, "petals": [{"brush": "round", "points": [[20, 20], [300, 200]]}]});
-    let e = flower_to_canvas(&flower(v), &RenderOpts::default())
+    let e = paint_flower(&flower(v), &RenderOpts::default())
         .unwrap_err()
         .0;
     assert!(e.contains("too far outside the 10x10 canvas"), "{e}");
@@ -563,7 +563,7 @@ fn a_bad_scale_is_an_error() {
 fn a_brush_larger_than_the_canvas_still_paints() {
     let v = json!({"width": 50, "height": 50, "petals": [{"brush": "airbrush", "size": 1e9, "points": [[25, 25], [30, 30]]}]});
     let c = paint(v, RenderOpts::default());
-    assert_eq!(c.img.len(), 50 * 50 * 3);
+    assert_eq!(c.rgb.len(), 50 * 50 * 3);
 }
 
 #[test]
@@ -571,7 +571,7 @@ fn a_seed_may_use_all_64_bits() {
     let at = |seed: Value| {
         let mut v = small(0);
         v["seed"] = seed;
-        paint(v, RenderOpts::default()).img
+        paint(v, RenderOpts::default()).rgb
     };
     // 2^63 and -2^63 are the same 64 bits, so the same jitter
     assert!(at(json!(9223372036854775808u64)) == at(json!(i64::MIN)));
@@ -581,5 +581,5 @@ fn a_seed_may_use_all_64_bits() {
 fn a_huge_grain_scale_paints_without_a_huge_paper() {
     let v = json!({"width": 50, "height": 50, "petals": [{"brush": "pencil", "grain_scale": 1e7, "points": [[5, 5], [40, 40]]}]});
     let c = paint(v, RenderOpts::default());
-    assert_eq!(c.img.len(), 50 * 50 * 3);
+    assert_eq!(c.rgb.len(), 50 * 50 * 3);
 }

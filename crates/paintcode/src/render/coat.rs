@@ -2,7 +2,7 @@
 
 use rayon::prelude::*;
 
-use super::{Canvas, Dab, Footprint, Spans};
+use super::{Dab, Footprint, Spans, WetCanvas};
 
 /// All the dabs of a painted flower, in order, with the colour each one carried.
 ///
@@ -24,10 +24,10 @@ pub struct Coat {
 /// Dabs whose footprints are evaluated at once when a coat is laid.
 const BATCH: usize = 4096;
 
-/// Lay every dab on a fresh canvas and box-filter it down: the canvas this coat makes.
-pub fn coat_to_canvas(coat: &Coat) -> Result<Canvas, String> {
+/// Lay every dab on a fresh canvas and box-filter it down: the canvas this coat makes, still wet.
+pub fn lay_coat(coat: &Coat) -> Result<WetCanvas, String> {
     let ss = coat.supersample.max(1);
-    let mut canvas = Canvas::new(
+    let mut canvas = WetCanvas::new(
         coat.width.saturating_mul(ss),
         coat.height.saturating_mul(ss),
         coat.background,
@@ -41,14 +41,14 @@ pub fn coat_to_canvas(coat: &Coat) -> Result<Canvas, String> {
         }
     }
     for batch in coat.dabs.chunks(BATCH) {
-        let cv: &Canvas = &canvas;
+        let cv: &WetCanvas = &canvas;
         let prints: Vec<Footprint> = batch
             .par_iter()
             .map(|d| cv.footprint(d, Spans::Ellipse, None).0)
             .collect();
-        let laid: Vec<(&Footprint, [f32; 3])> =
+        let coloured: Vec<(&Footprint, [f32; 3])> =
             prints.iter().zip(batch).map(|(f, d)| (f, d.rgb)).collect();
-        canvas.composite(&laid);
+        canvas.composite(&coloured);
     }
     canvas.downsample(ss);
     Ok(canvas)

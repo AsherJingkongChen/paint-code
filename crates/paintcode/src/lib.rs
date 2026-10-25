@@ -15,8 +15,9 @@
 //! | `petal`  | flesh  | math, flower, render  | petals to dabs, carrying paint                  |
 //! | `io`     | files  | render                | encoders and decoders, in pairs                 |
 //!
-//! This file only conducts: [`flower_to_canvas`] walks the petals of a [`Flower`] over a [`Canvas`],
-//! and [`flower_to_coat`] keeps the dabs it lays, which [`coat_to_canvas`] lays again.
+//! This file only conducts: [`paint_flower`] walks the petals of a [`Flower`] over a [`WetCanvas`],
+//! [`flower_to_coat`] keeps the dabs it lays, and [`lay_coat`] lays them again. Dried, a wet canvas
+//! is the [`Canvas`]: [`flower_to_canvas`] and [`coat_to_canvas`].
 
 pub mod flower;
 pub mod io;
@@ -27,7 +28,7 @@ pub mod render;
 pub use flower::{Error, Flower, Result};
 pub use io::{decode_flower, decode_ply, decode_png, encode_flower, encode_ply, encode_png};
 pub use petal::{Options, Painted};
-pub use render::{Canvas, Coat, RgbImage, Spans};
+pub use render::{Canvas, Coat, Spans, WetCanvas};
 
 #[derive(Debug, Clone, Copy)]
 pub struct RenderOpts {
@@ -48,8 +49,13 @@ impl Default for RenderOpts {
     }
 }
 
-/// Paint a flower on a blank canvas.
+/// Paint a flower: its canvas.
 pub fn flower_to_canvas(flower: &Flower, opts: &RenderOpts) -> Result<Canvas> {
+    Ok(paint_flower(flower, opts)?.dry())
+}
+
+/// Paint a flower on a blank canvas, and leave it wet: float, with its wetness.
+pub fn paint_flower(flower: &Flower, opts: &RenderOpts) -> Result<WetCanvas> {
     paint(flower, opts, false)
 }
 
@@ -62,16 +68,22 @@ pub fn flower_to_coat(flower: &Flower, opts: &RenderOpts) -> Result<Coat> {
         supersample: opts.supersample as usize,
         background: flower.background,
         seed: flower.seed,
-        dabs: canvas.laid.unwrap_or_default(),
+        dabs: canvas.dabs.unwrap_or_default(),
     })
 }
 
-/// Lay a coat's dabs again: the same canvas, bit for bit, as the render that made the coat.
+/// Lay a coat's dabs again: the same canvas, bit for bit, as painting its flower.
 pub fn coat_to_canvas(coat: &Coat) -> Result<Canvas> {
-    render::coat_to_canvas(coat).map_err(Error)
+    Ok(lay_coat(coat)?.dry())
 }
 
-fn paint(flower: &Flower, opts: &RenderOpts, record: bool) -> Result<Canvas> {
+/// Lay a coat's dabs on a blank canvas, and leave it wet: the same, bit for bit, as
+/// [`paint_flower`] on the flower that made the coat.
+pub fn lay_coat(coat: &Coat) -> Result<WetCanvas> {
+    render::lay_coat(coat).map_err(Error)
+}
+
+fn paint(flower: &Flower, opts: &RenderOpts, record: bool) -> Result<WetCanvas> {
     if !(opts.scale.is_finite() && opts.scale > 0.0) {
         return Err(Error(format!(
             "scale must be a positive number, got {}",
@@ -91,10 +103,10 @@ fn paint(flower: &Flower, opts: &RenderOpts, record: bool) -> Result<Canvas> {
         )));
     }
     let (w, h) = (w.saturating_mul(ss as usize), h.saturating_mul(ss as usize));
-    let mut canvas = Canvas::new(w, h, flower.background, flower.seed).map_err(Error)?;
+    let mut canvas = WetCanvas::new(w, h, flower.background, flower.seed).map_err(Error)?;
     let scale = opts.scale * ss as f64;
     if record {
-        canvas.laid = Some(Vec::new());
+        canvas.dabs = Some(Vec::new());
     }
     let (fw, fh) = (flower.width, flower.height);
     for (i, p) in flower.petals.iter().enumerate() {

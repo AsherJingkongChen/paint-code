@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::math::gauss::{self, CUTOFF_Q};
 use rayon::prelude::*;
 
-use super::{RgbImage, grain};
+use super::{Canvas, grain};
 
 /// One dab: an anisotropic 2D Gaussian with an opacity, a profile hardness, the paper grain it
 /// meets, and the colour the brush held when it was laid. A coat is a list of these.
@@ -80,44 +80,45 @@ pub struct Pickup {
 /// A fixed view of the canvas to read pickup from: the live canvas, or a snapshot of a rectangle.
 #[derive(Clone, Copy)]
 pub struct Source<'a> {
-    img: &'a [f32],
+    rgb: &'a [f32],
     wet: &'a [f32],
     ox: usize,
     oy: usize,
     w: usize,
 }
 
-/// Float RGB canvas that receives dabs, plus a wetness map.
-pub struct Canvas {
+/// The canvas while it is painted: float RGB that receives dabs, a wetness map, and the paper
+/// grain, at the size the dabs are laid (supersampled). Dried, it is the [`Canvas`].
+pub struct WetCanvas {
     pub width: usize,
     pub height: usize,
     pub seed: i64,
     /// Row-major RGB in 0..1, `height * width * 3`.
-    pub img: Vec<f32>,
+    pub rgb: Vec<f32>,
     /// How much paint is still wet, `height * width`.
     pub wet: Vec<f32>,
     /// Petals painted so far; a petal's index keys its jitter.
     pub petals: i64,
     /// Every dab laid so far, in order and in this canvas's pixels, when recording is on.
-    pub laid: Option<Vec<Dab>>,
+    pub dabs: Option<Vec<Dab>>,
     grain: HashMap<u64, Vec<f32>>,
 }
 
-impl std::fmt::Debug for Canvas {
+impl std::fmt::Debug for WetCanvas {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Canvas")
+        f.debug_struct("WetCanvas")
             .field("width", &self.width)
             .field("height", &self.height)
             .field("seed", &self.seed)
             .field("petals", &self.petals)
-            .field("laid", &self.laid.as_ref().map(Vec::len))
+            .field("dabs", &self.dabs.as_ref().map(Vec::len))
             .finish_non_exhaustive()
     }
 }
 
 const BAND: usize = 16;
 
-impl Canvas {
+impl WetCanvas {
     /// A blank canvas. Fails, rather than aborting, when it is larger than [`MAX_PIXELS`] or the
     /// memory cannot be had.
     pub fn new(
@@ -125,7 +126,7 @@ impl Canvas {
         height: usize,
         background: [f32; 3],
         seed: i64,
-    ) -> Result<Canvas, String> {
+    ) -> Result<WetCanvas, String> {
         let pixels = width
             .checked_mul(height)
             .filter(|&n| n <= MAX_PIXELS)
@@ -135,25 +136,25 @@ impl Canvas {
                      (16384 x 16384), counted after scale and supersample"
                 )
             })?;
-        let mut img = buffer(pixels * 3, "canvas")?;
-        for px in img.chunks_exact_mut(3) {
+        let mut rgb = buffer(pixels * 3, "canvas")?;
+        for px in rgb.chunks_exact_mut(3) {
             px.copy_from_slice(&background);
         }
-        Ok(Canvas {
+        Ok(WetCanvas {
             width,
             height,
             seed,
-            img,
+            rgb,
             wet: buffer(pixels, "wetness map")?,
             petals: 0,
-            laid: None,
+            dabs: None,
             grain: HashMap::new(),
         })
     }
 
     pub fn live(&self) -> Source<'_> {
         Source {
-            img: &self.img,
+            rgb: &self.rgb,
             wet: &self.wet,
             ox: 0,
             oy: 0,
@@ -161,7 +162,7 @@ impl Canvas {
         }
     }
 
-    /// Copy of a rectangle of the canvas (clamped), owned. Read it with [`Canvas::view`].
+    /// Copy of a rectangle of the canvas (clamped), owned. Read it with [`WetCanvas::view`].
     pub fn snapshot(
         &self,
         x0: usize,
@@ -172,18 +173,18 @@ impl Canvas {
         let (x1, y1) = (x1.min(self.width), y1.min(self.height));
         let (x0, y0) = (x0.min(x1), y0.min(y1));
         let w = x1 - x0;
-        let mut img = Vec::with_capacity(w * (y1 - y0) * 3);
+        let mut rgb = Vec::with_capacity(w * (y1 - y0) * 3);
         let mut wet = Vec::with_capacity(w * (y1 - y0));
         for y in y0..y1 {
-            img.extend_from_slice(&self.img[(y * self.width + x0) * 3..(y * self.width + x1) * 3]);
+            rgb.extend_from_slice(&self.rgb[(y * self.width + x0) * 3..(y * self.width + x1) * 3]);
             wet.extend_from_slice(&self.wet[y * self.width + x0..y * self.width + x1]);
         }
-        (img, wet, [x0, y0, w])
+        (rgb, wet, [x0, y0, w])
     }
 
-    pub fn view<'a>(img: &'a [f32], wet: &'a [f32], origin: [usize; 3]) -> Source<'a> {
+    pub fn view<'a>(rgb: &'a [f32], wet: &'a [f32], origin: [usize; 3]) -> Source<'a> {
         Source {
-            img,
+            rgb,
             wet,
             ox: origin[0],
             oy: origin[1],
@@ -316,7 +317,7 @@ impl Canvas {
                     let kw = k * src.wet[i];
                     kwsum += kw as f64;
                     for ch in 0..3 {
-                        under[ch] += (src.img[i * 3 + ch] * kw) as f64;
+                        under[ch] += (src.rgb[i * 3 + ch] * kw) as f64;
                     }
                 }
             }
@@ -340,11 +341,11 @@ impl Canvas {
     /// one-dab-at-a-time engine, so the result does not depend on the number of threads.
     pub fn composite(&mut self, prints: &[(&Footprint, [f32; 3])]) {
         let w = self.width;
-        self.img
+        self.rgb
             .par_chunks_mut(BAND * w * 3)
             .zip(self.wet.par_chunks_mut(BAND * w))
             .enumerate()
-            .for_each(|(band, (img, wet))| {
+            .for_each(|(band, (rgb, wet))| {
                 let (b0, b1) = (band * BAND, band * BAND + wet.len() / w);
                 for &(fp, col) in prints {
                     if fp.skip || fp.y_max <= b0 || fp.y_min >= b1 {
@@ -354,7 +355,7 @@ impl Canvas {
                         let row = (sp.y - b0) * w + sp.x0;
                         let ks = &fp.k[sp.off..sp.off + sp.len];
                         let wrow = &mut wet[row..row + sp.len];
-                        let prow = &mut img[row * 3..(row + sp.len) * 3];
+                        let prow = &mut rgb[row * 3..(row + sp.len) * 3];
                         for ((&k, wv), p) in
                             ks.iter().zip(wrow.iter_mut()).zip(prow.chunks_exact_mut(3))
                         {
@@ -389,7 +390,7 @@ impl Canvas {
                 ksum += k;
                 let i = (py as usize * self.width + px as usize) * 3;
                 for ch in 0..3 {
-                    acc[ch] += self.img[i + ch] as f64 * k;
+                    acc[ch] += self.rgb[i + ch] as f64 * k;
                 }
             }
         }
@@ -403,7 +404,7 @@ impl Canvas {
         }
         let (w, h) = (self.width / n, self.height / n);
         let inv = 1.0 / (n * n) as f64;
-        let mut img = vec![0f32; w * h * 3];
+        let mut rgb = vec![0f32; w * h * 3];
         let mut wet = vec![0f32; w * h];
         for y in 0..h {
             for x in 0..w {
@@ -412,34 +413,36 @@ impl Canvas {
                     for xx in x * n..(x + 1) * n {
                         let i = yy * self.width + xx;
                         for ch in 0..3 {
-                            acc[ch] += self.img[i * 3 + ch] as f64;
+                            acc[ch] += self.rgb[i * 3 + ch] as f64;
                         }
                         wacc += self.wet[i] as f64;
                     }
                 }
                 for ch in 0..3 {
-                    img[(y * w + x) * 3 + ch] = (acc[ch] * inv) as f32;
+                    rgb[(y * w + x) * 3 + ch] = (acc[ch] * inv) as f32;
                 }
                 wet[y * w + x] = (wacc * inv) as f32;
             }
         }
-        self.img = img;
+        self.rgb = rgb;
         self.wet = wet;
         self.width = w;
         self.height = h;
         self.grain.clear();
     }
 
-    pub fn to_rgb8(&self) -> RgbImage {
-        let data = self
-            .img
+    /// The pixels you see: every value clamped and rounded to 8 bits, no flower on them yet.
+    pub fn dry(&self) -> Canvas {
+        let pixels = self
+            .rgb
             .iter()
             .map(|&v| (v.clamp(0.0, 1.0) * 255.0f32 + 0.5f32) as u8)
             .collect();
-        RgbImage {
+        Canvas {
             width: self.width,
             height: self.height,
-            data,
+            pixels,
+            flower: None,
         }
     }
 }

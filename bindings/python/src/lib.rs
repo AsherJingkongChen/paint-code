@@ -8,7 +8,6 @@
 
 use std::path::{Path, PathBuf};
 
-use paintcode::render::RgbImage;
 use paintcode::{Error, Flower, RenderOpts, io};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -62,44 +61,31 @@ fn opts(scale: f64, supersample: i64) -> RenderOpts {
 
 /// The pixels you see, 8-bit RGB, and the flower on them if one was put there.
 #[pyclass(frozen, module = "paintcode")]
-struct Canvas {
-    image: RgbImage,
-    /// The flower's JSON, as `encode_flower` wrote it.
-    flower: Option<String>,
-}
-
-impl Canvas {
-    fn bare(image: RgbImage) -> Canvas {
-        Canvas {
-            image,
-            flower: None,
-        }
-    }
-}
+struct Canvas(paintcode::Canvas);
 
 #[pymethods]
 impl Canvas {
     #[getter]
     fn width(&self) -> usize {
-        self.image.width
+        self.0.width
     }
 
     #[getter]
     fn height(&self) -> usize {
-        self.image.height
+        self.0.height
     }
 
     /// One pixel as (r, g, b), 0..255.
     #[pyo3(signature = (*, x, y))]
     fn peek(&self, x: usize, y: usize) -> PyResult<(u8, u8, u8)> {
-        let (w, h) = (self.image.width, self.image.height);
+        let (w, h) = (self.0.width, self.0.height);
         if x >= w || y >= h {
             return Err(PyValueError::new_err(format!(
                 "pixel ({x}, {y}) is outside the {w}x{h} canvas"
             )));
         }
         let i = (y * w + x) * 3;
-        let d = &self.image.data;
+        let d = &self.0.pixels;
         Ok((d[i], d[i + 1], d[i + 2]))
     }
 
@@ -107,7 +93,7 @@ impl Canvas {
     /// whole canvas, not this part.
     #[pyo3(signature = (*, x, y, width, height))]
     fn crop(&self, x: usize, y: usize, width: usize, height: usize) -> PyResult<Canvas> {
-        let (w, h) = (self.image.width, self.image.height);
+        let (w, h) = (self.0.width, self.0.height);
         let fits =
             |at: usize, len: usize, side: usize| at.checked_add(len).is_some_and(|e| e <= side);
         if width == 0 || height == 0 || !fits(x, width, w) || !fits(y, height, h) {
@@ -118,33 +104,34 @@ impl Canvas {
         let mut data = Vec::with_capacity(width * height * 3);
         for row in y..y + height {
             let i = (row * w + x) * 3;
-            data.extend_from_slice(&self.image.data[i..i + width * 3]);
+            data.extend_from_slice(&self.0.pixels[i..i + width * 3]);
         }
-        Ok(Canvas::bare(RgbImage {
+        Ok(Canvas(paintcode::Canvas {
             width,
             height,
-            data,
+            pixels: data,
+            flower: None,
         }))
     }
 
     /// Every pixel, row by row, as RGB bytes: `numpy.frombuffer(c.pixels(), "u1").reshape(
     /// c.height, c.width, 3)`.
     fn pixels<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new(py, &self.image.data)
+        PyBytes::new(py, &self.0.pixels)
     }
 
     /// The canvas as PNG bytes, with its flower if one is on it: what save_canvas writes.
     fn png<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new(py, &io::encode_png(&self.image, self.flower.as_deref()))
+        PyBytes::new(py, &io::encode_png(&self.0, self.0.flower.as_deref()))
     }
 
     fn __repr__(&self) -> String {
-        let on = if self.flower.is_some() {
+        let on = if self.0.flower.is_some() {
             ", with its flower"
         } else {
             ""
         };
-        format!("<Canvas {}x{}{on}>", self.image.width, self.image.height)
+        format!("<Canvas {}x{}{on}>", self.0.width, self.0.height)
     }
 }
 
@@ -214,7 +201,7 @@ fn save_flower(py: Python<'_>, flower: &Bound<'_, PyAny>, pathname: PathBuf) -> 
 fn load_canvas(path: PathBuf) -> PyResult<Canvas> {
     let bytes = std::fs::read(&path)?;
     let (image, _) = io::decode_png(&bytes).map_err(|e| file_error(&path, e))?;
-    Ok(Canvas::bare(image))
+    Ok(Canvas(image))
 }
 
 /// Write a canvas as a PNG at `pathname.png`, or with its flower on it at `pathname.flower.png`.
@@ -222,8 +209,8 @@ fn load_canvas(path: PathBuf) -> PyResult<Canvas> {
 #[pyo3(signature = (*, canvas, pathname))]
 fn save_canvas(py: Python<'_>, canvas: PyRef<'_, Canvas>, pathname: PathBuf) -> PyResult<PathBuf> {
     let c: &Canvas = &canvas;
-    let png = py.detach(|| io::encode_png(&c.image, c.flower.as_deref()));
-    let suffix = if c.flower.is_some() {
+    let png = py.detach(|| io::encode_png(&c.0, c.0.flower.as_deref()));
+    let suffix = if c.0.flower.is_some() {
         ".flower.png"
     } else {
         ".png"
@@ -266,7 +253,7 @@ fn flower_to_canvas(
     let canvas = py
         .detach(|| paintcode::flower_to_canvas(&flower, &o))
         .map_err(value_error)?;
-    Ok(Canvas::bare(canvas.to_rgb8()))
+    Ok(Canvas(canvas))
 }
 
 /// Paint a flower and keep every dab it lays: its coat.
@@ -292,7 +279,7 @@ fn coat_to_canvas(py: Python<'_>, coat: PyRef<'_, Coat>) -> PyResult<Canvas> {
     let canvas = py
         .detach(|| paintcode::coat_to_canvas(coat))
         .map_err(value_error)?;
-    Ok(Canvas::bare(canvas.to_rgb8()))
+    Ok(Canvas(canvas))
 }
 
 /// The canvas with a flower on it, which save_canvas writes into the PNG. Any flower that was on
@@ -305,10 +292,10 @@ fn flower_on_canvas(
     canvas: PyRef<'_, Canvas>,
 ) -> PyResult<Canvas> {
     let (_, value) = flower_value(py, flower)?;
-    Ok(Canvas {
-        image: canvas.image.clone(),
+    Ok(Canvas(paintcode::Canvas {
         flower: Some(io::encode_flower(&value)),
-    })
+        ..canvas.0.clone()
+    }))
 }
 
 /// The flower on a canvas. A canvas without one is an error.
@@ -318,6 +305,7 @@ fn flower_off_canvas<'py>(
     canvas: PyRef<'py, Canvas>,
 ) -> PyResult<Bound<'py, PyAny>> {
     let text = canvas
+        .0
         .flower
         .as_deref()
         .ok_or_else(|| PyValueError::new_err("no flower on this canvas"))?;

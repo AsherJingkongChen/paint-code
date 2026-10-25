@@ -30,7 +30,7 @@ fn main() {
     }
     let flower = paintcode::Flower::from_json(&std::fs::read_to_string(path).unwrap()).unwrap();
     let t = Instant::now();
-    let canvas = paintcode::flower_to_canvas(&flower, &opts).unwrap();
+    let canvas = paintcode::paint_flower(&flower, &opts).unwrap();
     let dt = t.elapsed();
     println!(
         "{path}: {}x{}  {:.0} ms  ({} threads, {:?})",
@@ -41,7 +41,7 @@ fn main() {
         opts.petal.spans
     );
     if let Some(out) = flag("--out") {
-        let bytes: Vec<u8> = canvas.img.iter().flat_map(|v| v.to_le_bytes()).collect();
+        let bytes: Vec<u8> = canvas.rgb.iter().flat_map(|v| v.to_le_bytes()).collect();
         std::fs::write(out, bytes).unwrap();
     }
 }

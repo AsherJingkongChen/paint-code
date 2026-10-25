@@ -12,8 +12,7 @@ use std::path::{Path, PathBuf};
 
 use paintcode::io::{PLY_FIELDS, ply_to_splats};
 use paintcode::{
-    Flower, RenderOpts, coat_to_canvas, decode_ply, decode_png, encode_ply, flower_to_canvas,
-    flower_to_coat,
+    Flower, RenderOpts, decode_ply, decode_png, encode_ply, flower_to_coat, lay_coat, paint_flower,
 };
 use serde_json::Value;
 
@@ -54,7 +53,7 @@ fn check(name: &str) {
         supersample: o.get("supersample").and_then(Value::as_i64).unwrap_or(1),
         ..RenderOpts::default()
     };
-    let canvas = flower_to_canvas(&flower, &opts).unwrap();
+    let canvas = paint_flower(&flower, &opts).unwrap();
     let (w, h) = (
         case["width"].as_u64().unwrap() as usize,
         case["height"].as_u64().unwrap() as usize,
@@ -65,16 +64,16 @@ fn check(name: &str) {
     let want = decode_png(&std::fs::read(golden(&format!("{name}.png"))).unwrap())
         .unwrap()
         .0;
-    let got = canvas.to_rgb8();
+    let got = canvas.dry();
     let diffs: Vec<i16> = want
-        .data
+        .pixels
         .iter()
-        .zip(&got.data)
+        .zip(&got.pixels)
         .map(|(a, b)| (*a as i16 - *b as i16).abs())
         .filter(|&d| d > 0)
         .collect();
     let worst = diffs.iter().copied().max().unwrap_or(0);
-    let allowed = (want.data.len() / 10_000).max(8);
+    let allowed = (want.pixels.len() / 10_000).max(8);
     assert!(worst <= 1, "{name}: PNG differs by {worst}/255");
     assert!(
         diffs.len() <= allowed,
@@ -90,7 +89,7 @@ fn check(name: &str) {
             .unwrap();
         assert_eq!(raw.len(), w * h * 3 * 2, "{name}: float size");
         let mut gap = 0f32;
-        for (b, v) in raw.chunks_exact(2).zip(&canvas.img) {
+        for (b, v) in raw.chunks_exact(2).zip(&canvas.rgb) {
             let q = u16::from_le_bytes([b[0], b[1]]) as f32 / 65535.0;
             gap = gap.max((q - v.clamp(0.0, 1.0)).abs());
         }
@@ -103,9 +102,9 @@ fn check(name: &str) {
     // the coat, through its file and back: the same canvas, every bit
     let coat = flower_to_coat(&flower, &opts).unwrap();
     let ply = encode_ply(&coat);
-    let again = coat_to_canvas(&decode_ply(&ply).unwrap()).unwrap();
+    let again = lay_coat(&decode_ply(&ply).unwrap()).unwrap();
     assert!(
-        again.img == canvas.img,
+        again.rgb == canvas.rgb,
         "{name}: the coat lays another canvas"
     );
 

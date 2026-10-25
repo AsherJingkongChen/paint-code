@@ -13,7 +13,7 @@ use std::io::Cursor;
 
 use serde_json::Value;
 
-use crate::render::{Coat, Dab, MAX_PIXELS, RgbImage};
+use crate::render::{Canvas, Coat, Dab, MAX_PIXELS};
 
 pub type Result<T> = std::result::Result<T, String>;
 
@@ -31,7 +31,7 @@ pub fn is_png(bytes: &[u8]) -> bool {
 
 /// Encode pixels as a PNG (8-bit RGB, lossless), with a flower's JSON on it if one is given. The
 /// flower goes in a compressed iTXt chunk before the pixels, where a reader finds it first.
-pub fn encode_png(image: &RgbImage, flower: Option<&str>) -> Vec<u8> {
+pub fn encode_png(image: &Canvas, flower: Option<&str>) -> Vec<u8> {
     let mut out = Vec::new();
     {
         let mut enc = png::Encoder::new(&mut out, image.width as u32, image.height as u32);
@@ -43,7 +43,7 @@ pub fn encode_png(image: &RgbImage, flower: Option<&str>) -> Vec<u8> {
             chunk.compressed = true;
             w.write_text_chunk(&chunk).expect("PNG text");
         }
-        w.write_image_data(&image.data).expect("PNG data");
+        w.write_image_data(&image.pixels).expect("PNG data");
     }
     out
 }
@@ -75,7 +75,7 @@ fn png_reader(bytes: &[u8]) -> Result<png::Reader<Cursor<&[u8]>>> {
 /// image white.
 ///
 /// The size in the header is checked against [`MAX_PIXELS`] before anything is allocated.
-pub fn decode_png(bytes: &[u8]) -> Result<(RgbImage, Option<String>)> {
+pub fn decode_png(bytes: &[u8]) -> Result<(Canvas, Option<String>)> {
     let mut reader = png_reader(bytes)?;
     let (w, h) = (reader.info().width as usize, reader.info().height as usize);
     if w.saturating_mul(h) > MAX_PIXELS {
@@ -117,10 +117,11 @@ pub fn decode_png(bytes: &[u8]) -> Result<(RgbImage, Option<String>)> {
             })
             .collect()
     };
-    let image = RgbImage {
+    let image = Canvas {
         width: info.width as usize,
         height: info.height as usize,
-        data,
+        pixels: data,
+        flower: None,
     };
     Ok((image, flower))
 }
@@ -451,12 +452,13 @@ pub fn decode_ply(ply: &[u8]) -> Result<Coat> {
 mod tests {
     use super::*;
 
-    fn image() -> RgbImage {
+    fn image() -> Canvas {
         let data: Vec<u8> = (0..7 * 5 * 3).map(|i| (i * 37 % 256) as u8).collect();
-        RgbImage {
+        Canvas {
             width: 7,
             height: 5,
-            data,
+            pixels: data,
+            flower: None,
         }
     }
 
@@ -561,7 +563,7 @@ mod tests {
             w.write_image_data(&[0x12, 0x34, 0xff, 0x00]).unwrap();
         }
         let (img, _) = decode_png(&out).unwrap();
-        assert_eq!(img.data, [0x12, 0x12, 0x12, 0xff, 0xff, 0xff]);
+        assert_eq!(img.pixels, [0x12, 0x12, 0x12, 0xff, 0xff, 0xff]);
         // RGBA 8-bit: alpha is dropped, not composited
         let mut out = Vec::new();
         {
@@ -571,7 +573,7 @@ mod tests {
             let mut w = enc.write_header().unwrap();
             w.write_image_data(&[10, 20, 30, 0]).unwrap();
         }
-        assert_eq!(decode_png(&out).unwrap().0.data, [10, 20, 30]);
+        assert_eq!(decode_png(&out).unwrap().0.pixels, [10, 20, 30]);
     }
 
     fn coat() -> Coat {

@@ -1,6 +1,6 @@
 use crate::flower::{Brush, Color};
 use crate::math::rng;
-use crate::render::{Canvas, Dab, Footprint, Pickup, Spans};
+use crate::render::{Dab, Footprint, Pickup, Spans, WetCanvas};
 use rayon::prelude::*;
 
 use super::path::{Sample, samples};
@@ -102,7 +102,7 @@ pub struct Painted {
 
 /// Lay one petal onto the canvas.
 pub fn paint_petal(
-    canvas: &mut Canvas,
+    canvas: &mut WetCanvas,
     brush: &Brush,
     color: &Color,
     points: &[[f64; 4]],
@@ -161,11 +161,11 @@ pub fn paint_petal(
 
     for range in chunks {
         let src = match &snapshot {
-            Some((img, wet, origin)) => Some(Canvas::view(img, wet, *origin)),
+            Some((rgb, wet, origin)) => Some(WetCanvas::view(rgb, wet, *origin)),
             None if pickup => Some(canvas.live()),
             None => None,
         };
-        let cv: &Canvas = canvas;
+        let cv: &WetCanvas = canvas;
         let evaluated: Vec<(Footprint, Option<Pickup>)> = plans[range.clone()]
             .par_iter()
             .map(|p| cv.footprint(&p.dab, opts.spans, src))
@@ -185,7 +185,7 @@ pub fn paint_petal(
         let prints: Vec<(&Footprint, [f32; 3])> =
             evaluated.iter().map(|(f, _)| f).zip(colours).collect();
         canvas.composite(&prints);
-        if let Some(laid) = canvas.laid.as_mut() {
+        if let Some(dabs) = canvas.dabs.as_mut() {
             // only the dabs that reached the canvas, as they were laid
             for (plan, (fp, rgb)) in plans[range].iter().zip(&prints) {
                 if !fp.skip {
@@ -193,7 +193,7 @@ pub fn paint_petal(
                     dab.sx = dab.sx.max(0.5);
                     dab.sy = dab.sy.max(0.5);
                     dab.rgb = *rgb;
-                    laid.push(dab);
+                    dabs.push(dab);
                 }
             }
         }
