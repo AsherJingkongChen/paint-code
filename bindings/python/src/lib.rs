@@ -1,5 +1,5 @@
 //! `paintcode._core`: the Rust core, seen from Python. Scene JSON in, bytes out.
-//! The friendly wrapper is `paintcode/core.py`.
+//! The friendly wrapper is `python/paintcode/core.py`.
 
 use paintcode::{RenderOpts, Scene};
 use pyo3::exceptions::PyValueError;

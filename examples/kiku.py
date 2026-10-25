@@ -5,7 +5,7 @@ import random
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
 from paintcode import render  # noqa: E402
 
 W, H = 640, 640

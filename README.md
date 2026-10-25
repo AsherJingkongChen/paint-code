@@ -138,7 +138,7 @@ A stroke is painted in two parallel phases: every dab's kernel and the wet paint
 | Rust, 2 threads | 3.5 s |
 
 ```bash
-uv sync                                                                # builds the core into paintcode/; rebuilds when any .rs changes
+uv sync                                                                # builds the core into python/paintcode/; rebuilds when any .rs changes
 uv run python -c "import json, paintcode.core as c; open('k.png', 'wb').write(c.render_png(json.load(open('examples/kiku.json')), scale=2))"
 cargo run --release --example bench -- examples/kiku.json            # time a render
 ```

@@ -2,7 +2,7 @@
 //!
 //! The resize is a port of Pillow's `ImagingResample` for 32-bit float images (separable
 //! convolution, horizontal pass first, float64 accumulation, float32 between passes), so the
-//! paper matches `Canvas.grain_field` in `paintcode/canvas.py` to float rounding.
+//! paper matches `Canvas.grain_field` in `python/paintcode/canvas.py` to float rounding.
 
 use crate::math::rng;
 use rayon::prelude::*;

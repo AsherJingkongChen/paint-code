@@ -8,7 +8,7 @@
 //! 2. [`Canvas::composite`] lays the footprints down in order, one band of rows per thread.
 //!
 //! Every pixel sees the same arithmetic in the same order as the one-dab-at-a-time engine in
-//! `paintcode/canvas.py`, so splitting the work does not change a single bit.
+//! `python/paintcode/canvas.py`, so splitting the work does not change a single bit.
 
 mod canvas;
 mod grain;

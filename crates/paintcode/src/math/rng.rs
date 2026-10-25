@@ -3,7 +3,7 @@
 //! A draw is a pure function of a key such as (seed, stream, stroke, dab, slot), so editing one
 //! stroke cannot shift the jitter of another, and draws can happen in any order or in parallel.
 //! The mixer is the SplitMix64 finaliser; a key is folded in one part at a time,
-//! `h = mix(h ^ part)` from `h = 0`, with every part taken modulo 2^64 (as `paintcode/rng.py`).
+//! `h = mix(h ^ part)` from `h = 0`, with every part taken modulo 2^64 (as `python/paintcode/rng.py`).
 
 pub const JITTER: i64 = 1;
 pub const GRAIN: i64 = 2;

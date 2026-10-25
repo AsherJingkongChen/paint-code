@@ -185,7 +185,7 @@ impl Canvas {
 
     /// Evaluate one dab: its kernel, and if `pickup` the wet paint under it read from `src`.
     ///
-    /// This is the first half of `Canvas.stamp` in `paintcode/canvas.py`, with the same float32
+    /// This is the first half of `Canvas.stamp` in `python/paintcode/canvas.py`, with the same float32
     /// arithmetic per pixel (the geometry above it is float64, as in Python).
     pub fn footprint(
         &self,

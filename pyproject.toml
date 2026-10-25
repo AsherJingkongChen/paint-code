@@ -21,13 +21,13 @@ dev = ["pytest>=7"]
 [project.scripts]
 paintcode = "paintcode.__main__:main"
 
-# One package, two engines: the Python sources in paintcode/ and the Rust core built from
-# bindings/python into paintcode/_core.
+# One package, two engines: the Python sources in python/paintcode/ and the Rust core built
+# from bindings/python into paintcode._core. Keeping the sources under python/ means a Python
+# started at the repository root cannot import a half-built package by accident.
 [tool.maturin]
 manifest-path = "bindings/python/Cargo.toml"
 module-name = "paintcode._core"
-python-source = "."
-python-packages = ["paintcode"]
+python-source = "python"
 features = ["pyo3/extension-module"]
 
 [tool.uv]
