@@ -1,10 +1,12 @@
 [workspace]
-resolver = "2"
+resolver = "3"
 members = ["crates/paintcode", "bindings/python"]
 
 [workspace.package]
 version = "0.5.0"
-edition = "2021"
+edition = "2024"
+# the highest rust-version among the dependencies (zip 9); resolver 3 keeps new ones within it
+rust-version = "1.88"
 license = "BSD-3-Clause"
 repository = "https://github.com/AsherJingkongChen/paintcode"
 

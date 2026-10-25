@@ -21,3 +21,12 @@ jobs:
         run: uv sync --locked
       - name: Python tests (arguments, bytes, errors)
         run: uv run pytest -q
+
+  msrv:
+    # rust-version in Cargo.toml says 1.88; this keeps that true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.88
+      - name: Build the engine and the binding with the oldest supported Rust
+        run: cargo check --workspace --all-targets

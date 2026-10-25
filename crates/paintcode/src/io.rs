@@ -11,7 +11,7 @@ use std::io::{Cursor, Read, Write};
 
 use serde_json::Value;
 
-use crate::render::{Laid, RgbImage, MAX_PIXELS};
+use crate::render::{Laid, MAX_PIXELS, RgbImage};
 
 pub type Result<T> = std::result::Result<T, String>;
 
@@ -501,9 +501,10 @@ mod tests {
         assert_eq!(s.names, PLY_FIELDS);
         assert_eq!(s.column("x").unwrap(), [-0.25, 0.25]);
         assert_eq!(s.column("z").unwrap(), [0.05, 0.0]);
-        assert!(s
-            .comments
-            .contains(&"background 1.000000 0.000000 0.500000".to_string()));
+        assert!(
+            s.comments
+                .contains(&"background 1.000000 0.000000 0.500000".to_string())
+        );
     }
 
     #[test]

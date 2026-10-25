@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use super::{err, Result};
+use super::{Result, err};
 
 /// `[r, g, b]` in 0..255, or `"#rrggbb"` / `"#rgb"`, to float32 0..1.
 pub fn parse_color(c: &Value) -> Result<[f32; 3]> {

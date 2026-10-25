@@ -3,6 +3,7 @@ name = "paintcode-python"
 description = "The paintcode core as the Python extension paintcode._core."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false

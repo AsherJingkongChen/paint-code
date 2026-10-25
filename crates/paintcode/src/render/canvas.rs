@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::math::gauss::{self, CUTOFF_Q};
 use rayon::prelude::*;
 
-use super::{grain, RgbImage};
+use super::{RgbImage, grain};
 
 /// One anisotropic 2D Gaussian dab.
 ///

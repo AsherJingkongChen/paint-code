@@ -2,10 +2,10 @@
 //! tests/test_engine.py when that engine retired).
 
 use paintcode::render::{Canvas, Dab, Spans};
-use paintcode::scene::{preset, Brush, Color};
-use paintcode::stroke::{paint_stroke, samples, Options};
-use paintcode::{render, render_over, RenderOpts, RgbImage, Scene};
-use serde_json::{json, Value};
+use paintcode::scene::{Brush, Color, preset};
+use paintcode::stroke::{Options, paint_stroke, samples};
+use paintcode::{RenderOpts, RgbImage, Scene, render, render_over};
+use serde_json::{Value, json};
 
 fn scene(v: Value) -> Scene {
     Scene::from_value(&v).unwrap()
@@ -85,9 +85,10 @@ fn joints_keep_the_stroke_direction() {
     let pts = row(&[[10., 10.], [30., 30.], [30., 30.], [50., 50.], [70., 70.]]);
     let s = samples(&pts, &b, false);
     assert!(!s.is_empty());
-    assert!(s
-        .iter()
-        .all(|s| (s.direction - std::f64::consts::FRAC_PI_4).abs() < 1e-6));
+    assert!(
+        s.iter()
+            .all(|s| (s.direction - std::f64::consts::FRAC_PI_4).abs() < 1e-6)
+    );
 }
 
 #[test]
@@ -570,14 +571,16 @@ fn a_base_image_sets_the_canvas_the_points_are_checked_against() {
 #[test]
 fn an_override_replaces_a_bad_canvas_supersample() {
     let s = scene(json!({"canvas": {"width": 20, "height": 20, "supersample": 0}, "strokes": []}));
-    assert!(render(
-        &s,
-        &RenderOpts {
-            supersample: Some(2),
-            ..RenderOpts::default()
-        }
-    )
-    .is_ok());
+    assert!(
+        render(
+            &s,
+            &RenderOpts {
+                supersample: Some(2),
+                ..RenderOpts::default()
+            }
+        )
+        .is_ok()
+    );
     let e = render(&s, &RenderOpts::default()).unwrap_err().0;
     assert!(e.contains("canvas.supersample"), "{e}");
 }

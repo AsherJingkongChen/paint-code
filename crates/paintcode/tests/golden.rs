@@ -9,8 +9,8 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use paintcode::io::{ply_to_splats, PLY_FIELDS};
-use paintcode::{laid_to_ply, png_to_image, render_over, RenderOpts, Scene};
+use paintcode::io::{PLY_FIELDS, ply_to_splats};
+use paintcode::{RenderOpts, Scene, laid_to_ply, png_to_image, render_over};
 use serde_json::Value;
 
 const GATE: f32 = 1e-5 + 0.5 / 65535.0;

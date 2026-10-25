@@ -3,6 +3,7 @@ name = "paintcode"
 description = "A small dab engine. Every brush mark is a row of anisotropic 2D Gaussians."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 

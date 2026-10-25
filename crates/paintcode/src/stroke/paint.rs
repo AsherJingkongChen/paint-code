@@ -3,7 +3,7 @@ use crate::render::{Canvas, Dab, Footprint, Laid, Pickup, Spans};
 use crate::scene::{Brush, Color};
 use rayon::prelude::*;
 
-use super::path::{samples, Sample};
+use super::path::{Sample, samples};
 
 /// Knobs that change how fast a stroke is painted, never what it looks like.
 #[derive(Debug, Clone, Copy)]

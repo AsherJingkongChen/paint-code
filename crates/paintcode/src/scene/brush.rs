@@ -1,7 +1,7 @@
 use crate::math::gauss;
 use serde_json::{Map, Value};
 
-use super::{err, Error, Result};
+use super::{Error, Result, err};
 
 /// How one control point (x, y, pressure, tilt) becomes one dab. The fields are the README's
 /// "Brush fields" table.

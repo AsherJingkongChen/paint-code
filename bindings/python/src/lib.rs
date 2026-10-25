@@ -5,7 +5,7 @@
 //! bytes or a path to a PNG.
 
 use paintcode::render::RgbImage;
-use paintcode::{io, Error, RenderOpts, Scene};
+use paintcode::{Error, RenderOpts, Scene, io};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyString};
