@@ -1,0 +1,11 @@
+[package]
+name = "paintcode-render"
+description = "The renderer of paint-code: anisotropic 2D Gaussian dabs onto a float canvas."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+paintcode-math.workspace = true
+rayon.workspace = true

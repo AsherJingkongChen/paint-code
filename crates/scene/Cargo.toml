@@ -1,0 +1,11 @@
+[package]
+name = "paintcode-scene"
+description = "The bones of paint-code: scene, brush and stroke types, presets, colour parsing."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+paintcode-math.workspace = true
+serde_json.workspace = true
