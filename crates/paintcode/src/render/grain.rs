@@ -21,15 +21,17 @@ fn bicubic(x: f64) -> f64 {
     }
 }
 
-/// Pillow's `precompute_coeffs` for a box spanning the whole input.
-fn coeffs(in_size: usize, out_size: usize) -> (usize, Vec<(usize, usize)>, Vec<f64>) {
+/// Pillow's `precompute_coeffs` for a box spanning the whole input, for the first `count` of the
+/// `out_size` outputs (each output's weights depend only on its own index and the two sizes).
+fn coeffs(in_size: usize, out_size: usize, count: usize) -> (usize, Vec<(usize, usize)>, Vec<f64>) {
     let scale = in_size as f64 / out_size as f64;
     let filterscale = scale.max(1.0);
     let support = SUPPORT * filterscale;
     let ksize = support.ceil() as usize * 2 + 1;
-    let mut bounds = Vec::with_capacity(out_size);
-    let mut kk = vec![0f64; out_size * ksize];
-    for xx in 0..out_size {
+    let count = count.min(out_size);
+    let mut bounds = Vec::with_capacity(count);
+    let mut kk = vec![0f64; count * ksize];
+    for xx in 0..count {
         let center = (xx as f64 + 0.5) * scale;
         let ss = 1.0 / filterscale;
         let xmin = ((center - support + 0.5) as i64).max(0) as usize; // C cast truncates toward 0
@@ -52,11 +54,31 @@ fn coeffs(in_size: usize, out_size: usize) -> (usize, Vec<(usize, usize)>, Vec<f
 }
 
 /// Bicubic resize of a float32 image, as `Image.fromarray(a, "F").resize((dw, dh), BICUBIC)`.
+/// The engine only needs corners of it ([`resize_bicubic_crop`]); this is the whole, for tests.
+#[cfg(test)]
 pub fn resize_bicubic(src: &[f32], sw: usize, sh: usize, dw: usize, dh: usize) -> Vec<f32> {
-    let (kh, bh, kkh) = coeffs(sw, dw);
-    let (kv, bv, kkv) = coeffs(sh, dh);
+    resize_bicubic_crop(src, sw, sh, dw, dh, dw, dh)
+}
+
+/// The top-left `cw` x `ch` corner of [`resize_bicubic`] to `dw` x `dh`, bit for bit, without
+/// computing the rest: the work and the memory follow the corner, not the full size.
+pub fn resize_bicubic_crop(
+    src: &[f32],
+    sw: usize,
+    sh: usize,
+    dw: usize,
+    dh: usize,
+    cw: usize,
+    ch: usize,
+) -> Vec<f32> {
+    let (kh, bh, kkh) = coeffs(sw, dw, cw);
+    let (kv, bv, kkv) = coeffs(sh, dh, ch);
+    let (dw, dh) = (bh.len(), bv.len());
+    if dw == 0 || dh == 0 {
+        return Vec::new();
+    }
     let first = bv[0].0;
-    let last = bv[dh - 1].0 + bv[dh - 1].1;
+    let last = bv.iter().map(|&(lo, n)| lo + n).max().unwrap_or(first);
     // horizontal pass over the rows the vertical pass will read
     let rows = last - first;
     // every output pixel is its own sum, so rows can go to different threads
@@ -134,11 +156,14 @@ pub fn field(width: usize, height: usize, seed: i64, scale: f64) -> Vec<f32> {
             .map(|j| rng::grid_value(prefix, j))
             .collect();
         let (uw, uh) = ((gw as f64 * s) as usize, (gh as f64 * s) as usize);
-        let up = resize_bicubic(&noise, gw, gh, uw, uh);
+        // the canvas only ever reads the top-left corner of the upsampled noise, so only that
+        // corner is computed: a grain_scale far larger than the canvas costs no more memory
+        let (cw, ch) = (width.min(uw), height.min(uh));
+        let up = resize_bicubic_crop(&noise, gw, gh, uw, uh, cw, ch);
         let amp32 = amp as f32;
-        for y in 0..height {
-            for x in 0..width {
-                acc[y * width + x] += amp32 * up[y * uw + x];
+        for y in 0..ch {
+            for x in 0..cw {
+                acc[y * width + x] += amp32 * up[y * cw + x];
             }
         }
     }
@@ -150,4 +175,40 @@ pub fn field(width: usize, height: usize, seed: i64, scale: f64) -> Vec<f32> {
     acc.iter()
         .map(|&v| ((v as f64 - lo) / span).clamp(0.0, 1.0) as f32)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_corner_of_the_resize_is_the_resize() {
+        for &(sw, sh, dw, dh, cw, ch) in &[
+            (5, 4, 37, 29, 20, 11),
+            (9, 9, 30, 30, 30, 30),
+            (3, 7, 50, 8, 1, 8),
+        ] {
+            let src: Vec<f32> = (0..sw * sh)
+                .map(|i| ((i * 7919) % 101) as f32 / 101.0)
+                .collect();
+            let full = resize_bicubic(&src, sw, sh, dw, dh);
+            let crop = resize_bicubic_crop(&src, sw, sh, dw, dh, cw, ch);
+            for y in 0..ch {
+                for x in 0..cw {
+                    assert_eq!(
+                        crop[y * cw + x].to_bits(),
+                        full[y * dw + x].to_bits(),
+                        "{x} {y}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_huge_grain_scale_needs_no_huge_paper() {
+        let f = field(40, 30, 1, 1e7);
+        assert_eq!(f.len(), 40 * 30);
+        assert!(f.iter().all(|v| (0.0..=1.0).contains(v)));
+    }
 }

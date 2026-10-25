@@ -61,6 +61,8 @@ impl Scene {
             let Some(v) = cfg.get(k) else { return Ok(d) };
             let n = v
                 .as_i64()
+                // a seed may use all 64 bits; it is hashed as a u64
+                .or_else(|| v.as_u64().filter(|_| k == "seed").map(|u| u as i64))
                 .or_else(|| {
                     v.as_f64()
                         .filter(|f| f.fract() == 0.0 && f.abs() < 9e15)
@@ -80,7 +82,8 @@ impl Scene {
                 Some(c) => parse_color(c)?,
             },
             seed: int("seed", 0, i64::MIN)?,
-            supersample: int("supersample", 1, 1)?,
+            // checked where it is used: a render may override it
+            supersample: int("supersample", 1, i64::MIN)?,
         };
 
         let mut named: HashMap<&str, Brush> = HashMap::new();
@@ -102,10 +105,7 @@ impl Scene {
             .iter()
             .enumerate()
         {
-            strokes.push(
-                parse_stroke(s, &named, &canvas)
-                    .map_err(|e| Error(format!("stroke {idx}: {e}")))?,
-            );
+            strokes.push(parse_stroke(s, &named).map_err(|e| Error(format!("stroke {idx}: {e}")))?);
         }
         Ok(Scene { canvas, strokes })
     }
@@ -116,7 +116,20 @@ impl Scene {
 /// in a coordinate) would take seconds and gigabytes before anything is painted.
 pub const POINT_MARGIN: f64 = 16.0;
 
-fn parse_stroke(s: &Value, named: &HashMap<&str, Brush>, canvas: &CanvasCfg) -> Result<Stroke> {
+impl Stroke {
+    /// The first control point more than [`POINT_MARGIN`] canvas sizes outside a `width` x
+    /// `height` canvas, if there is one.
+    pub fn far_point(&self, width: usize, height: usize) -> Option<[f64; 2]> {
+        let margin = POINT_MARGIN * width.max(height) as f64;
+        let outside = |v: f64, side: usize| v < -margin || v > side as f64 + margin;
+        self.points
+            .iter()
+            .find(|p| outside(p[0], width) || outside(p[1], height))
+            .map(|p| [p[0], p[1]])
+    }
+}
+
+fn parse_stroke(s: &Value, named: &HashMap<&str, Brush>) -> Result<Stroke> {
     let s = s
         .as_object()
         .ok_or_else(|| Error("a stroke is a JSON object".into()))?;
@@ -158,14 +171,6 @@ fn parse_stroke(s: &Value, named: &HashMap<&str, Brush>, canvas: &CanvasCfg) -> 
             *o = v
                 .as_f64()
                 .ok_or_else(|| Error(format!("point values must be numbers, got {pt}")))?;
-        }
-        let margin = POINT_MARGIN * canvas.width.max(canvas.height) as f64;
-        let outside = |v: f64, side: usize| v < -margin || v > side as f64 + margin;
-        if outside(row[0], canvas.width) || outside(row[1], canvas.height) {
-            return err(format!(
-                "point {pt} is too far outside the {}x{} canvas (more than {margin} px)",
-                canvas.width, canvas.height
-            ));
         }
         points.push(row);
     }

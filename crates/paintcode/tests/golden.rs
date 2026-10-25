@@ -1,8 +1,10 @@
 //! The core against the numpy engine's frozen output (tests/golden, made by
 //! tests/golden/make.py at paintcode 0.4, the last version with that engine).
 //!
-//! Each case checks the 8-bit PNG within 1/255 and, for the small cases, the float canvas
-//! within 1e-5 plus half a 16-bit step. The PLY case checks every splat field.
+//! Each case checks the 8-bit PNG (no value off by more than 1/255, and at most one value in
+//! 10,000 off at all: libm rounding can flip a value that sits on a half step, a real change
+//! moves many), the float canvas within 1e-5 plus half a 16-bit step for the small cases, and
+//! every splat field of the PLY cases.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -30,6 +32,13 @@ fn manifest() -> serde_json::Map<String, Value> {
         .clone()
 }
 
+fn max_gap(a: &[f32], b: &[f32], f: impl Fn(f32) -> f32) -> f32 {
+    a.iter()
+        .zip(b)
+        .map(|(x, y)| (f(*x) - f(*y)).abs())
+        .fold(0f32, f32::max)
+}
+
 fn check(name: &str) {
     let m = manifest();
     let case = &m[name];
@@ -52,17 +61,24 @@ fn check(name: &str) {
     );
     assert_eq!((canvas.width, canvas.height), (w, h), "{name}: size");
 
-    // the PNG, within one step of 8-bit rounding
+    // the PNG: the same, but for a few values one step off where 8-bit rounding sits on a tie
     let want = png_to_image(&std::fs::read(golden(&format!("{name}.png"))).unwrap()).unwrap();
     let got = canvas.to_rgb8();
-    let worst = want
+    let diffs: Vec<i16> = want
         .data
         .iter()
         .zip(&got.data)
         .map(|(a, b)| (*a as i16 - *b as i16).abs())
-        .max()
-        .unwrap();
+        .filter(|&d| d > 0)
+        .collect();
+    let worst = diffs.iter().copied().max().unwrap_or(0);
+    let allowed = (want.data.len() / 10_000).max(8);
     assert!(worst <= 1, "{name}: PNG differs by {worst}/255");
+    assert!(
+        diffs.len() <= allowed,
+        "{name}: {} PNG values differ (at most {allowed} may)",
+        diffs.len()
+    );
 
     // the float canvas, where it was kept
     if let Some(f) = case.get("float").and_then(Value::as_str) {
@@ -79,16 +95,13 @@ fn check(name: &str) {
         assert!(gap <= GATE, "{name}: float canvas differs by {gap:e}");
     }
 
-    // the PLY: same header, every field close (the numpy engine rounded dabs to 3-4 decimals
-    // before writing them, the core does not)
+    // the PLY: the same header, and every field as close as the numpy engine's rounding allows
+    // (it rounded x, y, sx, sy to 3 decimals and theta, colour, alpha to 4 before writing; the
+    // core writes them unrounded)
     if let Some(f) = case.get("ply").and_then(Value::as_str) {
         let want = ply_to_splats(&std::fs::read(golden(f)).unwrap()).unwrap();
         let laid = canvas.laid.as_deref().unwrap();
-        let bg = Some([
-            0x20 as f32 / 255.0,
-            0x30 as f32 / 255.0,
-            0x40 as f32 / 255.0,
-        ]);
+        let bg = base.is_none().then_some(scene.canvas.background);
         let got = ply_to_splats(&laid_to_ply(laid, w, h, bg)).unwrap();
         assert_eq!(got.names, want.names);
         assert_eq!(got.comments, want.comments);
@@ -97,14 +110,25 @@ fn check(name: &str) {
             case["splats"].as_u64().unwrap(),
             "{name}: splat count"
         );
+        let unit = 2.0 / w.max(h) as f32; // px -> scene units
         for field in PLY_FIELDS {
             let (a, b) = (got.column(field).unwrap(), want.column(field).unwrap());
-            let worst = a
-                .iter()
-                .zip(b)
-                .map(|(x, y)| (x - y).abs())
-                .fold(0f32, f32::max);
-            assert!(worst < 2e-3, "{name}: PLY field {field} differs by {worst}");
+            // opacity is a logit, steep near the clamp: compare it as alpha
+            let sigmoid = |v: f32| 1.0 / (1.0 + (-v).exp());
+            let (tol, gap): (f32, f32) = match field {
+                "x" | "y" => (5e-4 * unit * 1.01, max_gap(a, b, |v| v)),
+                // ln(sx * unit) with sx rounded to 3 decimals, and sx at least 0.5 px
+                "scale_0" | "scale_1" => (1.01e-3, max_gap(a, b, |v| v)),
+                "f_dc_0" | "f_dc_1" | "f_dc_2" => (5e-5 / 0.2820948 * 1.01, max_gap(a, b, |v| v)),
+                "rot_0" | "rot_1" | "rot_2" | "rot_3" => (2.6e-5, max_gap(a, b, |v| v)),
+                "opacity" => (5.1e-5, max_gap(a, b, sigmoid)),
+                // z, the normals and the flat axis are computed the same way, unrounded
+                _ => (1e-6, max_gap(a, b, |v| v)),
+            };
+            assert!(
+                gap <= tol,
+                "{name}: PLY field {field} differs by {gap} (at most {tol})"
+            );
         }
     }
 }
@@ -133,6 +157,17 @@ fn features_on_a_base_image() {
 #[test]
 fn ply_export() {
     check("ply_scene");
+}
+
+#[test]
+fn ply_export_supersampled() {
+    // laid dabs come back to output pixel units when the canvas is box-filtered down
+    check("ply_scene_ss2");
+}
+
+#[test]
+fn ply_export_on_a_base_image() {
+    check("ply_on_base");
 }
 
 #[test]

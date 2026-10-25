@@ -78,7 +78,12 @@ pub fn render_over(scene: &Scene, base: Option<&RgbImage>, opts: &RenderOpts) ->
         None => {
             let ss = opts.supersample.unwrap_or(cfg.supersample);
             if ss < 1 {
-                return Err(Error(format!("supersample must be >= 1, got {ss}")));
+                let source = if opts.supersample.is_some() {
+                    "the supersample option"
+                } else {
+                    "canvas.supersample"
+                };
+                return Err(Error(format!("{source} must be at least 1, got {ss}")));
             }
             let side = |v: usize| (v as f64 * opts.scale).round_ties_even() as usize;
             let (w, h) = (side(cfg.width), side(cfg.height));
@@ -96,6 +101,20 @@ pub fn render_over(scene: &Scene, base: Option<&RgbImage>, opts: &RenderOpts) ->
     };
     if opts.record {
         canvas.laid = Some(Vec::new());
+    }
+    // the canvas the scene's coordinates refer to: the base image, or canvas.width x height
+    let (cw, ch) = match base {
+        Some(img) => (img.width, img.height),
+        None => (cfg.width, cfg.height),
+    };
+    for (i, s) in scene.strokes.iter().enumerate() {
+        if let Some([x, y]) = s.far_point(cw, ch) {
+            return Err(Error(format!(
+                "stroke {i}: point [{x}, {y}] is too far outside the {cw}x{ch} canvas \
+                 (more than {} px)",
+                scene::POINT_MARGIN * cw.max(ch) as f64
+            )));
+        }
     }
     for s in &scene.strokes {
         let brush = s.brush.scaled(scale);

@@ -9,7 +9,7 @@ mod parse;
 
 pub use brush::{preset, Brush, PRESET_NAMES};
 pub use color::parse_color;
-pub use parse::{CanvasCfg, Color, Scene, Stroke};
+pub use parse::{CanvasCfg, Color, Scene, Stroke, POINT_MARGIN};
 
 /// A message for a person or a model reading a bad scene.
 #[derive(Debug, Clone, PartialEq)]

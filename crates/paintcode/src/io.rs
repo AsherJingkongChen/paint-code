@@ -11,7 +11,7 @@ use std::io::{Cursor, Read, Write};
 
 use serde_json::Value;
 
-use crate::render::{Laid, RgbImage};
+use crate::render::{Laid, RgbImage, MAX_PIXELS};
 
 pub type Result<T> = std::result::Result<T, String>;
 
@@ -30,14 +30,27 @@ pub fn image_to_png(image: &RgbImage) -> Vec<u8> {
     out
 }
 
-/// Decode a PNG to 8-bit RGB. Any PNG works: palette and low bit depths are expanded, 16-bit
-/// samples keep their high byte, grey is copied to all three channels and alpha is dropped
-/// (as Pillow's `convert("RGB")`, which does not composite over anything).
+/// Decode a PNG to 8-bit RGB. Any PNG works: palette and low bit depths are expanded, grey is
+/// copied to all three channels and alpha is dropped without compositing (as Pillow's
+/// `convert("RGB")`). 16-bit samples keep their high byte, so a 16-bit image keeps its tones;
+/// Pillow instead clips 16-bit grey at 255, which turns most of such an image white.
+///
+/// The size in the header is checked against [`MAX_PIXELS`] before anything is allocated.
 pub fn png_to_image(png_bytes: &[u8]) -> Result<RgbImage> {
     let mut dec = png::Decoder::new(Cursor::new(png_bytes));
     dec.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
     let mut reader = dec.read_info().map_err(|e| format!("not a PNG: {e}"))?;
-    let mut buf = vec![0; reader.output_buffer_size().ok_or("PNG too large")?];
+    let (w, h) = (reader.info().width as usize, reader.info().height as usize);
+    if w.saturating_mul(h) > MAX_PIXELS {
+        return Err(format!(
+            "a {w}x{h} PNG is too large: the limit is {MAX_PIXELS} pixels (16384 x 16384)"
+        ));
+    }
+    let size = reader.output_buffer_size().ok_or("PNG too large")?;
+    let mut buf = Vec::new();
+    buf.try_reserve_exact(size)
+        .map_err(|_| format!("not enough memory for a {w}x{h} PNG"))?;
+    buf.resize(size, 0);
     let info = reader
         .next_frame(&mut buf)
         .map_err(|e| format!("bad PNG: {e}"))?;
@@ -159,10 +172,15 @@ pub fn petal_to_scene(petal: &[u8]) -> Result<Value> {
     };
     if let Some(meta) = read("meta.json")? {
         let meta: Value = serde_json::from_slice(&meta).map_err(|e| format!("meta.json: {e}"))?;
-        let version = meta.get("version").and_then(Value::as_i64).unwrap_or(0);
-        if meta.get("format").and_then(Value::as_str) != Some(PETAL_FORMAT)
-            || version > PETAL_VERSION
-        {
+        // a whole number, or a number or numeric string read the way Python's int() reads it
+        let version = match meta.get("version") {
+            None => Some(0),
+            Some(Value::Number(n)) => n.as_i64().or_else(|| n.as_f64().map(|f| f.trunc() as i64)),
+            Some(Value::String(s)) => s.trim().parse::<i64>().ok(),
+            Some(_) => None,
+        };
+        let known = meta.get("format").and_then(Value::as_str) == Some(PETAL_FORMAT);
+        if !known || !version.is_some_and(|v| v <= PETAL_VERSION) {
             return Err(format!("unsupported project format {meta}"));
         }
     }
@@ -338,10 +356,80 @@ mod tests {
         assert_eq!(png_to_image(&image_to_png(&img)).unwrap(), img);
     }
 
+    fn png_header(w: u32, h: u32) -> Vec<u8> {
+        let chunk = |t: &[u8], d: &[u8]| {
+            let mut c = (d.len() as u32).to_be_bytes().to_vec();
+            c.extend_from_slice(t);
+            c.extend_from_slice(d);
+            let mut crc = crc32(t);
+            crc = crc32_more(crc, d);
+            c.extend_from_slice(&crc.to_be_bytes());
+            c
+        };
+        let mut ihdr = w.to_be_bytes().to_vec();
+        ihdr.extend_from_slice(&h.to_be_bytes());
+        ihdr.extend_from_slice(&[8, 2, 0, 0, 0]);
+        let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+        png.extend(chunk(b"IHDR", &ihdr));
+        png.extend(chunk(b"IDAT", &[0x78, 0x9c, 0x03, 0, 0, 0, 0, 1])); // an empty zlib stream
+        png.extend(chunk(b"IEND", b""));
+        png
+    }
+
+    fn crc32(d: &[u8]) -> u32 {
+        crc32_more(0, d)
+    }
+
+    fn crc32_more(crc: u32, d: &[u8]) -> u32 {
+        let mut c = !crc;
+        for &b in d {
+            c ^= b as u32;
+            for _ in 0..8 {
+                c = if c & 1 != 0 {
+                    0xEDB8_8320 ^ (c >> 1)
+                } else {
+                    c >> 1
+                };
+            }
+        }
+        !c
+    }
+
+    #[test]
+    fn a_huge_png_header_is_an_error_before_any_allocation() {
+        let e = png_to_image(&png_header(100_000, 100_000)).unwrap_err();
+        assert!(e.contains("100000x100000 PNG is too large"), "{e}");
+    }
+
+    #[test]
+    fn grey_and_sixteen_bit_pngs_become_rgb() {
+        // 2x1 grey 16-bit: 0x1234 and 0xff00 keep their high bytes
+        let mut out = Vec::new();
+        {
+            let mut enc = png::Encoder::new(&mut out, 2, 1);
+            enc.set_color(png::ColorType::Grayscale);
+            enc.set_depth(png::BitDepth::Sixteen);
+            let mut w = enc.write_header().unwrap();
+            w.write_image_data(&[0x12, 0x34, 0xff, 0x00]).unwrap();
+        }
+        let img = png_to_image(&out).unwrap();
+        assert_eq!(img.data, [0x12, 0x12, 0x12, 0xff, 0xff, 0xff]);
+        // RGBA 8-bit: alpha is dropped, not composited
+        let mut out = Vec::new();
+        {
+            let mut enc = png::Encoder::new(&mut out, 1, 1);
+            enc.set_color(png::ColorType::Rgba);
+            enc.set_depth(png::BitDepth::Eight);
+            let mut w = enc.write_header().unwrap();
+            w.write_image_data(&[10, 20, 30, 0]).unwrap();
+        }
+        assert_eq!(png_to_image(&out).unwrap().data, [10, 20, 30]);
+    }
+
     #[test]
     fn petal_round_trip_keeps_the_scene_as_written() {
-        // keys out of alphabetical order, a float, a null and non-ASCII text
-        let text = r#"{"strokes":[{"points":[[1,2.5]],"color":null,"brush":"ink"}],"canvas":{"width":3},"note":"菊"}"#;
+        // keys out of alphabetical order, floats that need every digit, a null and non-ASCII text
+        let text = r#"{"strokes":[{"points":[[1,2.5],[485.09081788179355,0.1]],"color":null,"brush":"ink"}],"canvas":{"width":3},"note":"菊"}"#;
         let scene: Value = serde_json::from_str(text).unwrap();
         let petal = scene_to_petal(&scene, None).unwrap();
         let back = petal_to_scene(&petal).unwrap();
@@ -367,6 +455,23 @@ mod tests {
         z.write_all(b"{}").unwrap();
         let newer = z.finish().unwrap().into_inner();
         assert!(petal_to_scene(&newer).unwrap_err().contains("unsupported"));
+
+        let with_version = |v: &str| {
+            let mut z = zip::ZipWriter::new(Cursor::new(Vec::new()));
+            let o = zip::write::SimpleFileOptions::default();
+            z.start_file("meta.json", o).unwrap();
+            z.write_all(format!(r#"{{"format": "petal", "version": {v}}}"#).as_bytes())
+                .unwrap();
+            z.start_file("scene.json", o).unwrap();
+            z.write_all(b"{}").unwrap();
+            petal_to_scene(&z.finish().unwrap().into_inner())
+        };
+        for bad in [r#""2""#, "2.5", r#""abc""#, "true", "null"] {
+            assert!(with_version(bad).is_err(), "version {bad} was accepted");
+        }
+        for good in ["1", "1.0", r#""1""#, "0"] {
+            assert!(with_version(good).is_ok(), "version {good} was refused");
+        }
     }
 
     #[test]

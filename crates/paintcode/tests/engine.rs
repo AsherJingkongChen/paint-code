@@ -550,3 +550,53 @@ fn a_brush_larger_than_the_canvas_still_paints() {
     let c = paint(v, RenderOpts::default());
     assert_eq!(c.img.len(), 50 * 50 * 3);
 }
+
+#[test]
+fn a_base_image_sets_the_canvas_the_points_are_checked_against() {
+    // the scene declares a tiny canvas, but the base image is the canvas: [300, 200] is on it
+    let base = RgbImage {
+        width: 400,
+        height: 300,
+        data: vec![90; 400 * 300 * 3],
+    };
+    let s = scene(json!({"canvas": {"width": 10, "height": 10},
+                         "strokes": [{"brush": "round", "points": [[20, 20], [300, 200]]}]}));
+    assert!(render_over(&s, Some(&base), &RenderOpts::default()).is_ok());
+    // and without the base the same point is far off the 10x10 canvas
+    let e = render(&s, &RenderOpts::default()).unwrap_err().0;
+    assert!(e.contains("too far outside the 10x10 canvas"), "{e}");
+}
+
+#[test]
+fn an_override_replaces_a_bad_canvas_supersample() {
+    let s = scene(json!({"canvas": {"width": 20, "height": 20, "supersample": 0}, "strokes": []}));
+    assert!(render(
+        &s,
+        &RenderOpts {
+            supersample: Some(2),
+            ..RenderOpts::default()
+        }
+    )
+    .is_ok());
+    let e = render(&s, &RenderOpts::default()).unwrap_err().0;
+    assert!(e.contains("canvas.supersample"), "{e}");
+}
+
+#[test]
+fn a_seed_may_use_all_64_bits() {
+    let at = |seed: Value| {
+        let mut v = small(0);
+        v["canvas"]["seed"] = seed;
+        paint(v, RenderOpts::default()).img
+    };
+    // 2^63 and -2^63 are the same 64 bits, so the same jitter
+    assert!(at(json!(9223372036854775808u64)) == at(json!(i64::MIN)));
+}
+
+#[test]
+fn a_huge_grain_scale_paints_without_a_huge_paper() {
+    let v = json!({"canvas": {"width": 50, "height": 50},
+                   "strokes": [{"brush": "pencil", "grain_scale": 1e7, "points": [[5, 5], [40, 40]]}]});
+    let c = paint(v, RenderOpts::default());
+    assert_eq!(c.img.len(), 50 * 50 * 3);
+}

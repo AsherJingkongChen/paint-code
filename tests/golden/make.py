@@ -1,8 +1,15 @@
 """Freeze the numpy engine's output as golden files, before that engine is retired.
 
-Run once, from the repository root, at paintcode 0.4 (the last version with the numpy engine):
+Run from the repository root with the 0.4 numpy engine on the path. At 0.4 itself:
 
     uv run python tests/golden/make.py
+
+From a later version, check 0.4 out next to it and point at its Python sources:
+
+    git worktree add ../paintcode-0.4 a48d242
+    PAINTCODE_04=../paintcode-0.4/python uv run python tests/golden/make.py
+
+The output is deterministic, so files that already exist come out byte for byte the same.
 
 It writes, for every case in CASES,
     <name>.png      the painting, 8-bit, as the numpy engine saved it
@@ -13,6 +20,7 @@ The Rust core matched this engine within 2.4e-7 on kiku.json when these were mad
 """
 import gzip
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -20,7 +28,7 @@ import numpy as np
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "python"))
+sys.path.insert(0, os.environ.get("PAINTCODE_04") or str(ROOT / "python"))
 from paintcode import ply  # noqa: E402
 from paintcode.scene import render  # noqa: E402
 
@@ -71,7 +79,8 @@ CASES = [
 ]
 
 # the float canvas is only kept for the small cases; the large ones keep their PNG
-FLOAT = {"features", "features_scale2", "features_ss3", "features_half_ss2", "features_on_base", "ply_scene"}
+FLOAT = {"features", "features_scale2", "features_ss3", "features_half_ss2", "features_on_base", "ply_scene",
+         "ply_scene_ss2", "ply_on_base"}
 
 
 def main():
@@ -79,7 +88,13 @@ def main():
     (HERE / "ply_scene.json").write_text(json.dumps(PLY_SCENE, indent=1) + "\n")
     base_image()
     manifest = {}
-    cases = CASES + [("ply_scene", "tests/golden/ply_scene.json", {"ply": True})]
+    cases = CASES + [
+        ("ply_scene", "tests/golden/ply_scene.json", {"ply": True}),
+        # the laid dabs are rescaled when a supersampled canvas comes down to size
+        ("ply_scene_ss2", "tests/golden/ply_scene.json", {"ply": True, "supersample": 2}),
+        # over a base image there is no paper colour in the header
+        ("ply_on_base", "tests/golden/ply_scene.json", {"ply": True, "base": "tests/golden/base.png"}),
+    ]
     for name, scene_file, kw in cases:
         scene = json.loads((ROOT / scene_file).read_text())
         opts = {k: v for k, v in kw.items() if k != "ply"}
@@ -93,7 +108,7 @@ def main():
             (HERE / f"{name}.u16.gz").write_bytes(gzip.compress(q.tobytes(), 9, mtime=0))
             entry["float"] = f"{name}.u16.gz"
         if kw.get("ply"):
-            bg = [0x20 / 255, 0x30 / 255, 0x40 / 255]
+            bg = None if "base" in kw else [0x20 / 255, 0x30 / 255, 0x40 / 255]
             n = ply.write(HERE / f"{name}.ply", c.dabs, c.width, c.height, background=bg)
             entry["ply"] = f"{name}.ply"
             entry["splats"] = n

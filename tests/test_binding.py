@@ -97,6 +97,36 @@ def test_a_huge_canvas_is_an_error_and_python_lives_on():
     assert r.returncode == 0 and r.stdout.startswith("caught"), r.stderr
 
 
+def test_a_hostile_base_png_is_an_error_and_python_lives_on():
+    # a PNG header that claims 100000 x 100000 pixels; before the fix the allocation aborted
+    code = ("import struct, zlib, paintcode\n"
+            "def chunk(t, d): return struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d))\n"
+            "png = (b'\\x89PNG\\r\\n\\x1a\\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', 100000, 100000, 8, 2, 0, 0, 0))\n"
+            "       + chunk(b'IDAT', zlib.compress(b'')) + chunk(b'IEND', b''))\n"
+            "try:\n"
+            "    paintcode.render_png({'canvas': {'width': 10, 'height': 10}}, base=png)\n"
+            "except ValueError as e:\n"
+            "    print('caught', e)\n")
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0 and "too large" in r.stdout, r.stdout + r.stderr
+
+
+def test_a_grey_or_rgba_base_works_like_rgb():
+    rgb = Image.open(GOLDEN / "base.png").convert("RGB")
+    for mode in ("RGBA", "L", "P"):
+        im = rgb.convert(mode)
+        buf = io.BytesIO()
+        im.save(buf, "PNG")
+        want = paintcode.render_png(SCENE, base=_png(im.convert("RGB")))
+        assert paintcode.render_png(SCENE, base=buf.getvalue()) == want, mode
+
+
+def _png(im) -> bytes:
+    buf = io.BytesIO()
+    im.save(buf, "PNG")
+    return buf.getvalue()
+
+
 def test_options_are_keyword_only():
     with pytest.raises(TypeError):
         paintcode.render_png(SCENE, 2.0)
@@ -121,6 +151,20 @@ def test_the_command_line(tmp_path):
                        capture_output=True, text=True, timeout=120)
     assert r.returncode == 0, r.stderr
     assert again.read_bytes() == outs[0].read_bytes()
+
+
+def test_the_command_line_paints_over_a_base(tmp_path):
+    scene = tmp_path / "s.json"
+    scene.write_text(json.dumps(SCENE))
+    out = tmp_path / "over.png"
+    r = subprocess.run([sys.executable, "-m", "paintcode", str(scene), "-o", str(out), "--base", str(GOLDEN / "base.png")],
+                       capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr
+    want = pixels((GOLDEN / "features_on_base.png").read_bytes())
+    assert np.abs(pixels(out.read_bytes()) - want).max() <= 1
+    r = subprocess.run([sys.executable, "-m", "paintcode", str(scene), "-o", str(out), "--base", str(GOLDEN / "base.png"),
+                        "--scale", "2"], capture_output=True, text=True, timeout=60)
+    assert r.returncode == 2 and "base image" in r.stderr
 
 
 def test_the_command_line_says_what_is_wrong(tmp_path):

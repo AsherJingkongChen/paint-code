@@ -10,7 +10,7 @@ repository = "https://github.com/AsherJingkongChen/paintcode"
 
 [workspace.dependencies]
 paintcode = { path = "crates/paintcode" }
-serde_json = { version = "1", features = ["preserve_order"] }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 rayon = "1"
 png = "0.18"
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }

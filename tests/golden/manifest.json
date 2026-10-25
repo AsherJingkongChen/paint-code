@@ -65,5 +65,29 @@
   "float": "ply_scene.u16.gz",
   "ply": "ply_scene.ply",
   "splats": 538
+ },
+ "ply_scene_ss2": {
+  "scene": "tests/golden/ply_scene.json",
+  "options": {
+   "ply": true,
+   "supersample": 2
+  },
+  "width": 120,
+  "height": 90,
+  "float": "ply_scene_ss2.u16.gz",
+  "ply": "ply_scene_ss2.ply",
+  "splats": 579
+ },
+ "ply_on_base": {
+  "scene": "tests/golden/ply_scene.json",
+  "options": {
+   "ply": true,
+   "base": "tests/golden/base.png"
+  },
+  "width": 160,
+  "height": 90,
+  "float": "ply_on_base.u16.gz",
+  "ply": "ply_on_base.ply",
+  "splats": 538
  }
 }
