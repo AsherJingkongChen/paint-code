@@ -154,3 +154,42 @@ def test_same_size_looks_the_same_at_any_hardness():
         paint_stroke(c, Brush(size=16, hardness=h), "#ffffff", [[20, 40], [180, 40]])
         widths.append(int((c.img[:, 100, 0] > 0.5).sum()))
     assert max(widths) - min(widths) <= 0.2 * max(widths)
+
+
+# ---------------------------------------------------------------- random numbers
+
+def test_rng_spec_is_pinned():
+    """These values are part of the format: the Rust core checks the same numbers."""
+    from paintcode import rng
+    assert rng.key(24, 1, 0, 0, 0) == 0x45C276EDBC638DF7
+    assert rng.key(-1, 2, 3) == 0x48141E3702D4765A
+    assert rng.uniform(24, 1, 0, 0, 0) == 0.27249854377840965
+    prefix = rng.key(7, rng.GRAIN, 3000, 0)
+    assert prefix == 0x731157264855CD28
+    grid = rng.uniform_grid(prefix, 4)
+    assert grid.dtype == np.float32
+    assert grid.tolist() == [0.47280991077423096, 0.3959234356880188, 0.8277716636657715, 0.01953345537185669]
+    assert [int(v * (1 << 24)) for v in rng.uniform_grid(prefix, 8)] == [rng.mix(prefix ^ i) >> 40 for i in range(8)]
+
+
+def test_editing_a_stroke_leaves_the_others_jitter_alone():
+    """Jitter is keyed by stroke and dab, so a longer first stroke does not move the second."""
+    second = {"brush": "flat", "color": "#40a0e0", "points": [[20, 60], [140, 60]]}
+    short = {"brush": "filbert", "color": "#c8782a", "points": [[10, 20], [80, 20]]}
+    long = {"brush": "filbert", "color": "#c8782a", "points": [[10, 20], [80, 20], [150, 30]]}
+    dabs = []
+    for first in (short, long):
+        c = render({"canvas": {"width": 160, "height": 80, "seed": 9}, "strokes": [first, second]}, record_dabs=True)
+        n_first = sum(1 for d in c.dabs if abs(d["y"] - 60) > 15)
+        dabs.append([(d["x"], d["y"], d["sx"], d["theta"]) for d in c.dabs[n_first:]])
+    assert dabs[0] == dabs[1]
+
+
+def test_pixel_arithmetic_stays_float32():
+    """Stroke samples are numpy float64 scalars; they must not drag the dab maths into float64."""
+    col = np.array([0.2, 0.5, 0.9], np.float32)
+    args = (40.3, 21.7, 5.2, 2.1, 0.7, col, 0.8, 0.6)
+    a, b = Canvas(80, 40), Canvas(80, 40)
+    a.stamp(*[np.float64(v) if isinstance(v, float) else v for v in args])
+    b.stamp(*args)
+    assert a.img.dtype == np.float32 and np.array_equal(a.img, b.img)

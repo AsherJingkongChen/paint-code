@@ -6,8 +6,15 @@ import math
 
 import numpy as np
 
+from . import rng
 from .brush import Brush
 from .canvas import Canvas, parse_color
+
+
+def _dist(dx: float, dy: float) -> float:
+    """Length of a 2D offset in plain IEEE arithmetic rather than libm, so the Rust core gets
+    the same bits on every platform."""
+    return math.sqrt(dx * dx + dy * dy)
 
 
 def _normalise(points) -> np.ndarray:
@@ -27,7 +34,7 @@ def _normalise(points) -> np.ndarray:
     # drop consecutive duplicates: a zero-length segment has no direction
     keep = [0]
     for i in range(1, len(a)):
-        if math.hypot(a[i, 0] - a[keep[-1], 0], a[i, 1] - a[keep[-1], 1]) > 1e-6:
+        if _dist(a[i, 0] - a[keep[-1], 0], a[i, 1] - a[keep[-1], 1]) > 1e-6:
             keep.append(i)
         else:
             a[keep[-1], 2:] = np.maximum(a[keep[-1], 2:], a[i, 2:])
@@ -39,7 +46,7 @@ def _catmull_rom(a: np.ndarray, smooth: bool) -> np.ndarray:
     if len(a) < 3 or not smooth:
         dense = [a[0]]
         for i in range(1, len(a)):
-            seg = math.hypot(*(a[i, :2] - a[i - 1, :2]))
+            seg = _dist(*(a[i, :2] - a[i - 1, :2]))
             n = max(1, int(math.ceil(seg / 1.0)))
             for j in range(1, n + 1):
                 dense.append(a[i - 1] + (a[i] - a[i - 1]) * (j / n))
@@ -51,13 +58,13 @@ def _catmull_rom(a: np.ndarray, smooth: bool) -> np.ndarray:
         p0, p1, p2, p3 = P[i - 1], P[i], P[i + 1], P[i + 2]
 
         def knot(ti, pa, pb):
-            return ti + max(1e-6, math.hypot(*(pb[:2] - pa[:2]))) ** 0.5
+            return ti + max(1e-6, _dist(*(pb[:2] - pa[:2]))) ** 0.5
 
         t0 = 0.0
         t1 = knot(t0, p0, p1)
         t2 = knot(t1, p1, p2)
         t3 = knot(t2, p2, p3)
-        seg = math.hypot(*(p2[:2] - p1[:2]))
+        seg = _dist(*(p2[:2] - p1[:2]))
         n = max(1, int(math.ceil(seg / 1.0)))
         for j in range(1, n + 1):
             t = t1 + (t2 - t1) * (j / n)
@@ -80,7 +87,8 @@ def samples(points, brush: Brush, smooth: bool = True):
         yield x, y, p, t, 0.0, 0.0
         return
     d = _catmull_rom(a, smooth)
-    seg = np.hypot(np.diff(d[:, 0]), np.diff(d[:, 1]))
+    ddx, ddy = np.diff(d[:, 0]), np.diff(d[:, 1])
+    seg = np.sqrt(ddx * ddx + ddy * ddy)
     good = seg > 1e-9
     starts, ends, seg = d[:-1][good], d[1:][good], seg[good]
     if len(seg) == 0:
@@ -104,7 +112,13 @@ def samples(points, brush: Brush, smooth: bool = True):
 
 def paint_stroke(canvas: Canvas, brush: Brush, color, points, smooth: bool = True) -> int:
     """Lay one stroke onto the canvas. Returns the number of dabs."""
-    rng = canvas.rng
+    sid = canvas.strokes
+    canvas.strokes += 1
+
+    def jitter(n: int, slot: int, amount: float) -> float:
+        # uniform in [-amount, amount], keyed by this stroke, this dab and the slot
+        return -amount + 2.0 * amount * rng.uniform(canvas.seed, rng.JITTER, sid, n, slot)
+
     pts = list(samples(points, brush, smooth))
     if color is None:   # a smudge: load the brush with whatever is under its first touch
         carried = canvas.sample(pts[0][0], pts[0][1], brush.radius(pts[0][2])).astype(np.float32) if pts else None
@@ -132,10 +146,10 @@ def paint_stroke(canvas: Canvas, brush: Brush, color, points, smooth: bool = Tru
 
         r = brush.radius(p)
         if brush.size_jitter:
-            r *= 1.0 + rng.uniform(-brush.size_jitter, brush.size_jitter)
+            r *= 1.0 + jitter(n, rng.SIZE, brush.size_jitter)
         flow = brush.flow_at(p) * load
         if brush.flow_jitter:
-            flow *= 1.0 + rng.uniform(-brush.flow_jitter, brush.flow_jitter)
+            flow *= 1.0 + jitter(n, rng.FLOW, brush.flow_jitter)
         flow *= 1.0 - 0.35 * tilt   # a tilted brush lays a thinner film over a wider area
         # flow means the film laid at the default spacing; denser or sparser dabs keep the same build-up
         ref = max(0.35, 0.3 * brush.footprint_along(brush.radius(p)))
@@ -146,10 +160,10 @@ def paint_stroke(canvas: Canvas, brush: Brush, color, points, smooth: bool = Tru
         else:
             theta = math.radians(brush.angle)
         if brush.angle_jitter:
-            theta += math.radians(rng.uniform(-brush.angle_jitter, brush.angle_jitter))
+            theta += math.radians(jitter(n, rng.ANGLE, brush.angle_jitter))
         if brush.pos_jitter:
-            x += rng.uniform(-1, 1) * brush.pos_jitter * r
-            y += rng.uniform(-1, 1) * brush.pos_jitter * r
+            x += jitter(n, rng.POS_X, 1.0) * brush.pos_jitter * r
+            y += jitter(n, rng.POS_Y, 1.0) * brush.pos_jitter * r
 
         k = brush.sigma_scale()
         sx = k * r * (1.0 + brush.tilt_stretch * tilt)
@@ -159,8 +173,8 @@ def paint_stroke(canvas: Canvas, brush: Brush, color, points, smooth: bool = Tru
         if under is not None and brush.pickup > 0:
             # only wet paint is picked up; the rate is per brush-radius of travel, so dab density does not change it
             colour_under, wetness = under
-            mix = 1.0 - (1.0 - brush.pickup * wetness) ** (brush.step(p) / max(r, 1e-3))
-            carried = carried * (1.0 - mix) + colour_under.astype(np.float32) * mix
+            mix = float(1.0 - (1.0 - brush.pickup * wetness) ** (brush.step(p) / max(r, 1e-3)))
+            carried = carried * (1.0 - mix) + colour_under.astype(np.float32) * mix   # stays float32
         n += 1
     canvas.last_carried = carried   # paint left on the brush, after any pickup
     return n

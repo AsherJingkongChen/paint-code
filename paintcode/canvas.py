@@ -7,6 +7,8 @@ import math
 import numpy as np
 from PIL import Image
 
+from . import rng
+
 
 def parse_color(c) -> np.ndarray:
     """[r, g, b] in 0..255, or "#rrggbb", to float32 0..1."""
@@ -38,7 +40,7 @@ class Canvas:
         self.img = np.empty((self.height, self.width, 3), dtype=np.float32)
         self.img[:] = parse_color(background)
         self.wet = np.zeros((self.height, self.width), dtype=np.float32)   # how much paint is still wet
-        self.rng = np.random.default_rng(self.seed)
+        self.strokes = 0   # strokes painted so far; a stroke's index keys its jitter
         self.dabs: list[dict] | None = [] if record_dabs else None
         self._grain: dict[float, np.ndarray] = {}
 
@@ -86,19 +88,19 @@ class Canvas:
         """Paper tooth in 0..1, fixed to the canvas so every stroke meets the same texture."""
         key = round(float(scale), 3)
         if key not in self._grain:
-            rng = np.random.default_rng([self.seed, 0x9A, int(key * 1000)])
             acc = np.zeros((self.height, self.width), dtype=np.float32)
             amp_total = 0.0
-            for octave, amp in ((1.0, 0.65), (0.5, 0.35)):
+            for i, (octave, amp) in enumerate(((1.0, 0.65), (0.5, 0.35))):
                 s = max(1.0, key * octave)
                 gw, gh = int(math.ceil(self.width / s)) + 2, int(math.ceil(self.height / s)) + 2
-                g = Image.fromarray(rng.random((gh, gw), dtype=np.float32), "F")
+                noise = rng.uniform_grid(rng.key(self.seed, rng.GRAIN, int(key * 1000), i), gw * gh)
+                g = Image.fromarray(noise.reshape(gh, gw), "F")
                 up = g.resize((int(gw * s), int(gh * s)), Image.BICUBIC)
                 acc += amp * np.asarray(up, dtype=np.float32)[: self.height, : self.width]
                 amp_total += amp
             acc /= amp_total
             lo, hi = np.percentile(acc, (2, 98))
-            self._grain[key] = np.clip((acc - lo) / max(hi - lo, 1e-6), 0, 1)
+            self._grain[key] = np.clip((acc - lo) / max(hi - lo, 1e-6), 0, 1).astype(np.float32)
         return self._grain[key]
 
     # ------------------------------------------------------------------- dabs
@@ -115,6 +117,9 @@ class Canvas:
         standard deviations sx (major) and sy (minor) rotated by theta. h = 0 is a 2D Gaussian;
         as h approaches 1 the dab becomes a hard-edged ellipse of radius one sigma.
         """
+        # Plain Python floats, so numpy keeps the pixel arithmetic in float32 (a numpy float64
+        # scalar here would promote every array below to float64).
+        x, y, sx, sy, theta, alpha = float(x), float(y), float(sx), float(sy), float(theta), float(alpha)
         # below half a pixel a Gaussian falls between pixel centres and flickers; 3DGS adds a
         # similar low-pass floor. The clamped sigmas are what gets recorded and exported.
         sx, sy = max(sx, 0.5), max(sy, 0.5)
