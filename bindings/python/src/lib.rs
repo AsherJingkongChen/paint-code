@@ -163,21 +163,6 @@ fn petal_to_scene<'py>(py: Python<'py>, petal: &[u8]) -> PyResult<Bound<'py, PyA
         .call_method1("loads", (value.to_string(),))
 }
 
-/// The command line, `paintcode SCENE -o OUT ...`. argv defaults to sys.argv[1:]; returns the
-/// exit status.
-#[pyfunction]
-#[pyo3(signature = (argv = None))]
-fn main(py: Python<'_>, argv: Option<Vec<String>>) -> PyResult<i32> {
-    let argv = match argv {
-        Some(a) => a,
-        None => {
-            let all: Vec<String> = py.import("sys")?.getattr("argv")?.extract()?;
-            all.into_iter().skip(1).collect()
-        }
-    };
-    Ok(py.detach(|| paintcode::cli::main(&argv)))
-}
-
 #[pymodule]
 #[pyo3(name = "_core")]
 fn paintcode_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -186,7 +171,6 @@ fn paintcode_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(render_f32, m)?)?;
     m.add_function(wrap_pyfunction!(scene_to_petal, m)?)?;
     m.add_function(wrap_pyfunction!(petal_to_scene, m)?)?;
-    m.add_function(wrap_pyfunction!(main, m)?)?;
     m.add("PRESETS", paintcode::scene::PRESET_NAMES.to_vec())?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())

@@ -136,39 +136,6 @@ def test_the_presets_are_listed():
     assert {"ink", "filbert", "blender"} <= set(paintcode.PRESETS)
 
 
-def test_the_command_line(tmp_path):
-    scene = tmp_path / "s.json"
-    scene.write_text(json.dumps(SCENE))
-    outs = [tmp_path / n for n in ("a.png", "a.petal", "a.ply")]
-    cmd = [sys.executable, "-m", "paintcode", str(scene)] + [a for o in outs for a in ("-o", str(o))]
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-    assert r.returncode == 0, r.stderr
-    assert all(o.exists() and o.stat().st_size > 0 for o in outs)
-    assert "160x90" in r.stdout and "splats" in r.stdout
-    # the project renders like the scene
-    again = tmp_path / "b.png"
-    r = subprocess.run([sys.executable, "-m", "paintcode", str(outs[1]), "-o", str(again)],
-                       capture_output=True, text=True, timeout=120)
-    assert r.returncode == 0, r.stderr
-    assert again.read_bytes() == outs[0].read_bytes()
-
-
-def test_the_command_line_paints_over_a_base(tmp_path):
-    scene = tmp_path / "s.json"
-    scene.write_text(json.dumps(SCENE))
-    out = tmp_path / "over.png"
-    r = subprocess.run([sys.executable, "-m", "paintcode", str(scene), "-o", str(out), "--base", str(GOLDEN / "base.png")],
-                       capture_output=True, text=True, timeout=120)
-    assert r.returncode == 0, r.stderr
-    want = pixels((GOLDEN / "features_on_base.png").read_bytes())
-    assert np.abs(pixels(out.read_bytes()) - want).max() <= 1
-    r = subprocess.run([sys.executable, "-m", "paintcode", str(scene), "-o", str(out), "--base", str(GOLDEN / "base.png"),
-                        "--scale", "2"], capture_output=True, text=True, timeout=60)
-    assert r.returncode == 2 and "base image" in r.stderr
-
-
-def test_the_command_line_says_what_is_wrong(tmp_path):
-    r = subprocess.run([sys.executable, "-m", "paintcode", "x.json", "-o", "x.jpg"],
-                       capture_output=True, text=True, timeout=60)
-    assert r.returncode == 2 and "unknown output format" in r.stderr
-    assert paintcode.main(["--help"]) == 0
+def test_a_project_renders_like_its_scene():
+    petal = paintcode.scene_to_petal(SCENE)
+    assert paintcode.render_png(paintcode.petal_to_scene(petal)) == paintcode.render_png(SCENE)

@@ -13,7 +13,6 @@ or the README for the scene format.
 from ._core import (
     PRESETS,
     __version__,
-    main,
     petal_to_scene,
     render_f32,
     render_ply,
@@ -21,4 +20,4 @@ from ._core import (
     scene_to_petal,
 )
 
-__all__ = ["PRESETS", "main", "petal_to_scene", "render_f32", "render_ply", "render_png", "scene_to_petal"]
+__all__ = ["PRESETS", "petal_to_scene", "render_f32", "render_ply", "render_png", "scene_to_petal"]

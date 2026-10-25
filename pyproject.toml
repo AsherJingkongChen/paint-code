@@ -16,9 +16,6 @@ dynamic = ["version"]
 # numpy and Pillow are for the tests and the example scripts, not for the package
 dev = ["pytest>=7", "numpy>=1.24", "pillow>=10"]
 
-[project.scripts]
-paintcode = "paintcode:main"
-
 # The engine is Rust, built from bindings/python into paintcode._core; python/paintcode/ only
 # re-exports it and carries the type stub. Keeping that under python/ means a Python started at
 # the repository root cannot import a half-built package by accident.

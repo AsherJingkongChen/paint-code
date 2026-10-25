@@ -19,5 +19,5 @@ jobs:
         run: cargo test --release -p paintcode -- --include-ignored
       - name: The engine built as a Python module (from uv.lock)
         run: uv sync --locked
-      - name: Python tests (arguments, bytes, errors, files, the CLI)
+      - name: Python tests (arguments, bytes, errors)
         run: uv run pytest -q

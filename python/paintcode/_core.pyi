@@ -63,7 +63,3 @@ def scene_to_petal(scene: Scene, *, preview: bool = True) -> bytes:
 
 def petal_to_scene(petal: bytes) -> dict[str, Any]:
     """The scene inside a .petal project, keys in their written order."""
-
-def main(argv: list[str] | None = None) -> int:
-    """The command line: paintcode SCENE -o OUT [-o OUT ...] [--base IMAGE] [--scale S] [--ss N].
-    argv defaults to sys.argv[1:]. Returns the exit status."""

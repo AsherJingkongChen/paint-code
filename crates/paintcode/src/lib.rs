@@ -13,7 +13,6 @@
 //!
 //! This file only conducts: [`render`] walks the strokes of a [`Scene`] over a [`Canvas`].
 
-pub mod cli;
 pub mod io;
 pub mod math;
 pub mod render;

@@ -17,15 +17,24 @@ uv sync                     # for development: the package, pytest, numpy and Pi
 
 ## Render
 
-```bash
-python -m paintcode scene.json -o out.png -o out.petal -o out.ply   # one render, three exports
-python -m paintcode out.petal -o again.png                          # a project renders like a scene
-python -m paintcode scene.json -o big.png --scale 2                 # coordinates and brush sizes scale together
-python -m paintcode scene.json -o crisp.png --ss 3                  # supersample hard edges
-python -m paintcode scene.json -o out.png --base old.png            # paint over a PNG, at its size (treated as dry paint)
+```python
+import paintcode
+
+scene = {"canvas": {"width": 400, "height": 200, "background": "#f4efe6", "seed": 1},
+         "strokes": [{"brush": "nib", "color": "#223", "points": [[20, 100], [80, 140], [140, 90]]},
+                     {"brush": "filbert", "size": 12, "color": [200, 120, 40],
+                      "points": [[20, 170, 0.3], [200, 165, 1], [380, 175, 0.2]]}]}
+
+png = paintcode.render_png(scene)                    # the painting
+png = paintcode.render_png(scene, scale=2)           # coordinates and brush sizes scale together
+png = paintcode.render_png(scene, supersample=3)     # supersample hard edges
+png = paintcode.render_png(scene, base="old.png")    # paint over a PNG, at its size (treated as dry paint)
+ply = paintcode.render_ply(scene)                    # every dab as a splat; same options
+petal = paintcode.scene_to_petal(scene)              # the project: strokes, never dabs
+scene = paintcode.petal_to_scene(petal)              # a project renders like its scene
 ```
 
-Installed, the same command is also `paintcode`. Either way it is the engine's own command line; Python only hands it the arguments.
+A scene is a dict or JSON text; a base image is PNG bytes or a path. Mistakes raise `ValueError` with a message that names the stroke or field. `help(paintcode._core)` and the type stub `paintcode/_core.pyi` describe every function; the package has no dependencies of its own. There is no command line: the engine is a library, and Python (later JavaScript) is how it is driven.
 
 | export | what it is |
 |---|---|
@@ -33,9 +42,9 @@ Installed, the same command is also `paintcode`. Either way it is the engine's o
 | `.petal` | the project: a ZIP (Deflate, lossless) with `scene.json`, `meta.json` and a small `preview.png`. It stores strokes, never dabs |
 | `.ply` | every dab as a flat 3D Gaussian in the 3D Gaussian Splatting layout, readable by splat viewers |
 
-The same scene and seed always produce the same pixels. Jitter is counter-based: every random number is a hash of (seed, stroke index, dab index, slot), so editing or lengthening one stroke never moves the jitter of another, and appending strokes leaves the ones before them alone. To keep working on a painting, append strokes to the scene and render it again rather than painting over the PNG: re-rendering keeps the wet-paint state that `--base` cannot recover.
+The same scene and seed always produce the same pixels. Jitter is counter-based: every random number is a hash of (seed, stroke index, dab index, slot), so editing or lengthening one stroke never moves the jitter of another, and appending strokes leaves the ones before them alone. To keep working on a painting, append strokes to the scene and render it again rather than painting over the PNG: re-rendering keeps the wet-paint state that a base image cannot recover.
 
-Version 0.5 paints the same pixels as 0.4 (within 1/255 on the PNG, 1e-5 on the float canvas). It is stricter about mistakes: canvas `width`, `height`, `seed` and `supersample` must be whole numbers written as numbers (0.4 also took `"640"` and rounded `640.7`), a control point may not lie more than 16 canvas sizes off the canvas (the base image's size, when there is one), and a canvas or a base PNG is at most 2^28 pixels after scale and supersample; each of these is an error naming the stroke or field, where 0.4 rounded quietly, hung or crashed. `--base` takes PNG only; 0.4 took anything Pillow opens. A 16-bit base PNG keeps its tones (0.4 clipped 16-bit grey to white). Version 0.4 changed the random numbers (jitter and paper tooth), so a scene from 0.3 renders with slightly different jitter.
+Version 0.5 paints the same pixels as 0.4 (within 1/255 on the PNG, 1e-5 on the float canvas). It is stricter about mistakes: canvas `width`, `height`, `seed` and `supersample` must be whole numbers written as numbers (0.4 also took `"640"` and rounded `640.7`), a control point may not lie more than 16 canvas sizes off the canvas (the base image's size, when there is one), and a canvas or a base PNG is at most 2^28 pixels after scale and supersample; each of these is an error naming the stroke or field, where 0.4 rounded quietly, hung or crashed. A base image is PNG only; 0.4 took anything Pillow opens. 0.4's command line (`python -m paintcode`) is gone; every option it had is a keyword of `render_png` and `render_ply`. A 16-bit base PNG keeps its tones (0.4 clipped 16-bit grey to white). Version 0.4 changed the random numbers (jitter and paper tooth), so a scene from 0.3 renders with slightly different jitter.
 
 ## Scene format
 
@@ -68,7 +77,7 @@ where $(u, v)$ is the pixel offset rotated into the dab's frame and $h$ is hardn
 
 ### Sharpness
 
-A Gaussian is a low-pass filter, so a stroke made of Gaussians has soft edges by nature; hardness is the cure. A stroke of size 16 keeps a half-coverage width of 26 to 30 px from hardness 0 to 0.95, while its 10–90% edge narrows from about 14 px to 1 px. Hard brushes alias, so set `canvas.supersample` (or `--ss`) to paint at N times the size and box-filter down; the dabs and the jitter stay the same, only the sampling improves.
+A Gaussian is a low-pass filter, so a stroke made of Gaussians has soft edges by nature; hardness is the cure. A stroke of size 16 keeps a half-coverage width of 26 to 30 px from hardness 0 to 0.95, while its 10–90% edge narrows from about 14 px to 1 px. Hard brushes alias, so set `canvas.supersample` (or `supersample=`) to paint at N times the size and box-filter down; the dabs and the jitter stay the same, only the sampling improves.
 
 ### As Gaussian splats
 
@@ -104,24 +113,6 @@ Presets: `ink`, `pencil`, `nib`, `round`, `filbert`, `flat`, `airbrush`, `dry`, 
 
 The canvas keeps a wetness map. Every dab makes the area under it wetter, and `pickup` only takes colour from wet paint, read from a snapshot taken when the stroke starts. So a brush never picks up the dry background, never re-picks its own trail, and the result does not depend on dab spacing.
 
-## Python
-
-```python
-import paintcode
-
-scene = {"canvas": {"width": 400, "height": 200, "background": "#f4efe6", "seed": 1},
-         "strokes": [{"brush": "nib", "color": "#223", "points": [[20, 100], [80, 140], [140, 90]]},
-                     {"brush": "filbert", "size": 12, "color": [200, 120, 40],
-                      "points": [[20, 170, 0.3], [200, 165, 1], [380, 175, 0.2]]}]}
-
-open("out.png", "wb").write(paintcode.render_png(scene))            # also scale=, supersample=, base=
-open("out.ply", "wb").write(paintcode.render_ply(scene))            # every dab as a splat
-open("out.petal", "wb").write(paintcode.scene_to_petal(scene))      # the project: strokes, never dabs
-scene = paintcode.petal_to_scene(open("out.petal", "rb").read())
-```
-
-A scene is a dict or JSON text. Mistakes raise `ValueError` with a message that names the stroke or field. `help(paintcode._core)` and the type stub `paintcode/_core.pyi` describe every function; the package has no dependencies of its own.
-
 ## The engine
 
 The engine is Rust: one library, `crates/paintcode`, with one module per part of the engine. `bindings/python` builds it into the Python package as `paintcode._core`; the rest of the package only re-exports it. Inside the library, dependencies point one way, from the leaf up, and `tests/layering.rs` fails if a module reaches back down the list.
@@ -133,7 +124,6 @@ The engine is Rust: one library, `crates/paintcode`, with one module per part of
 | `render` | render | math | dabs to pixels, paper grain, downsampling |
 | `stroke` | flesh | math, scene, render | control points to dabs, carrying paint |
 | `io` | files | render | encoders and decoders, in pairs: PNG, `.petal`, PLY |
-| `cli` | — | scene, render, io | the command line |
 
 Up to 0.4 a numpy engine in this package was the reference, and the core was checked against it at 1e-5 on the float canvas (2.4e-7 at worst on `kiku.json`). 0.5 retired it: its output for the examples and a feature matrix is frozen in `tests/golden/`, and the core is checked against those files.
 
@@ -155,7 +145,7 @@ cargo run --release --example bench -- examples/kiku.json            # time a re
 
 ```bash
 cargo test --release -p paintcode -- --include-ignored   # the engine: behaviour, golden output, fast path = reference path, layering
-uv run pytest                                            # the Python face: arguments, bytes, errors, files, the CLI
+uv run pytest                                            # the Python face: arguments, bytes, errors
 ```
 
 `tests/golden/make.py` made the golden files with the numpy engine at 0.4; it does not run on 0.5, which no longer has that engine.
