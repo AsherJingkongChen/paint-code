@@ -134,26 +134,10 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 name = "paintcode"
 version = "0.4.0"
 dependencies = [
- "paintcode-io",
- "paintcode-math",
- "paintcode-render",
- "paintcode-scene",
- "paintcode-stroke",
+ "png",
  "rayon",
  "serde_json",
 ]
-
-[[package]]
-name = "paintcode-io"
-version = "0.4.0"
-dependencies = [
- "paintcode-render",
- "png",
-]
-
-[[package]]
-name = "paintcode-math"
-version = "0.4.0"
 
 [[package]]
 name = "paintcode-py"
@@ -161,32 +145,6 @@ version = "0.4.0"
 dependencies = [
  "paintcode",
  "pyo3",
-]
-
-[[package]]
-name = "paintcode-render"
-version = "0.4.0"
-dependencies = [
- "paintcode-math",
- "rayon",
-]
-
-[[package]]
-name = "paintcode-scene"
-version = "0.4.0"
-dependencies = [
- "paintcode-math",
- "serde_json",
-]
-
-[[package]]
-name = "paintcode-stroke"
-version = "0.4.0"
-dependencies = [
- "paintcode-math",
- "paintcode-render",
- "paintcode-scene",
- "rayon",
 ]
 
 [[package]]

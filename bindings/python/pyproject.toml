@@ -1,0 +1,25 @@
+[build-system]
+requires = ["maturin>=1.5,<2"]
+build-backend = "maturin"
+
+[project]
+name = "paintcode-core"
+description = "The Rust core of paintcode, as a Python module (paintcode_core)."
+requires-python = ">=3.10"
+license = "BSD-3-Clause"
+dynamic = ["version"]
+
+[tool.maturin]
+module-name = "paintcode_core"
+features = ["pyo3/extension-module"]
+
+[tool.uv]
+# rebuild the extension whenever any Rust source changes, not only this file
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "Cargo.toml" },
+    { file = "src/**/*.rs" },
+    { file = "../../Cargo.toml" },
+    { file = "../../crates/paintcode/Cargo.toml" },
+    { file = "../../crates/paintcode/src/**/*.rs" },
+]

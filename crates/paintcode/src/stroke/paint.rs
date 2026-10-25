@@ -1,9 +1,9 @@
-use paintcode_math::rng;
-use paintcode_render::{Canvas, Dab, Footprint, Pickup, Spans};
-use paintcode_scene::{Brush, Color};
+use crate::math::rng;
+use crate::render::{Canvas, Dab, Footprint, Pickup, Spans};
+use crate::scene::{Brush, Color};
 use rayon::prelude::*;
 
-use crate::path::{samples, Sample};
+use super::path::{samples, Sample};
 
 /// Knobs that change how fast a stroke is painted, never what it looks like.
 #[derive(Debug, Clone, Copy)]

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde_json::{Map, Value};
 
-use crate::{err, parse_color, Brush, Error, Result};
+use super::{err, parse_color, Brush, Error, Result};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CanvasCfg {

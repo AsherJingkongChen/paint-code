@@ -23,7 +23,7 @@ VERSION = 1
 def save(path, scene: dict, preview=None, engine_version: str | None = None) -> None:
     """Write a .petal. preview is an optional PIL image (it is shrunk to fit 256 px)."""
     from . import __version__
-    meta = {"format": FORMAT, "version": VERSION, "engine": f"paint-code {engine_version or __version__}"}
+    meta = {"format": FORMAT, "version": VERSION, "engine": f"paintcode {engine_version or __version__}"}
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as z:
         z.writestr("meta.json", json.dumps(meta, indent=1))
         z.writestr("scene.json", json.dumps(scene, separators=(",", ":"), ensure_ascii=False))

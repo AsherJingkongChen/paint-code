@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
-use paintcode_math::gauss::{self, CUTOFF_Q};
+use crate::math::gauss::{self, CUTOFF_Q};
 use rayon::prelude::*;
 
-use crate::{grain, RgbImage};
+use super::{grain, RgbImage};
 
 /// One anisotropic 2D Gaussian dab.
 ///

@@ -1,4 +1,4 @@
-//! The leaf of the engine. Every other crate may depend on this one; it depends on nothing.
+//! The leaf of the engine. Every other module may use this one; it uses nothing.
 //!
 //! - [`rng`]: counter-based random numbers, bit-identical to `paintcode/rng.py`
 //! - [`gauss`]: the dab profile and the geometry of an anisotropic 2D Gaussian

@@ -1,19 +1,28 @@
-//! paint-code: a scene goes in, pixels come out.
+//! paintcode: a scene goes in, pixels come out.
 //!
-//! This crate only conducts. The parts it calls, from the leaf up:
+//! One library, one module per part of the engine. Dependencies point one way, from the leaf up,
+//! and `tests/layering.rs` fails if a module reaches back down the list:
 //!
-//! | crate              | part   | does                                             |
-//! |--------------------|--------|--------------------------------------------------|
-//! | `paintcode-math`   | leaf   | counter-based RNG, dab profile and geometry      |
-//! | `paintcode-scene`  | bones  | scene, brush and stroke types, presets, colours  |
-//! | `paintcode-render` | render | dabs to pixels, paper grain, downsampling        |
-//! | `paintcode-stroke` | flesh  | control points to dabs, carrying paint           |
-//! | `paintcode-io`     | files  | encoders and decoders                            |
+//! | module   | part   | may use               | does                                            |
+//! |----------|--------|-----------------------|-------------------------------------------------|
+//! | `math`   | leaf   | nothing               | counter-based RNG, dab profile and geometry     |
+//! | `scene`  | bones  | math                  | scene, brush and stroke types, presets, colours |
+//! | `render` | render | math                  | dabs to pixels, paper grain, downsampling       |
+//! | `stroke` | flesh  | math, scene, render   | control points to dabs, carrying paint          |
+//! | `io`     | files  | render                | encoders and decoders, in pairs                 |
+//!
+//! This file only conducts: [`render`] walks the strokes of a [`Scene`] over a [`Canvas`].
 
-pub use paintcode_io::{image_to_png, png_to_image};
-pub use paintcode_render::{Canvas, RgbImage, Spans};
-pub use paintcode_scene::{Error, Result, Scene};
-pub use paintcode_stroke::Options;
+pub mod io;
+pub mod math;
+pub mod render;
+pub mod scene;
+pub mod stroke;
+
+pub use io::{image_to_png, png_to_image};
+pub use render::{Canvas, RgbImage, Spans};
+pub use scene::{Error, Result, Scene};
+pub use stroke::Options;
 
 #[derive(Debug, Clone, Copy)]
 pub struct RenderOpts {
@@ -51,7 +60,7 @@ pub fn render(scene: &Scene, opts: &RenderOpts) -> Result<Canvas> {
             .iter()
             .map(|p| [p[0] * scale, p[1] * scale, p[2], p[3]])
             .collect();
-        paintcode_stroke::paint_stroke(&mut canvas, &brush, &s.color, &pts, s.smooth, opts.stroke);
+        stroke::paint_stroke(&mut canvas, &brush, &s.color, &pts, s.smooth, opts.stroke);
     }
     canvas.downsample(ss as usize);
     Ok(canvas)

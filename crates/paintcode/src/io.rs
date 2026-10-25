@@ -1,7 +1,7 @@
 //! The files. Each block does one conversion and comes with its inverse, so every pair can be
 //! checked with a round trip. This window only needs the first one.
 
-use paintcode_render::RgbImage;
+use crate::render::RgbImage;
 
 /// Encode pixels as a PNG (8-bit RGB, lossless).
 pub fn image_to_png(image: &RgbImage) -> Vec<u8> {

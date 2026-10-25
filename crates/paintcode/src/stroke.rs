@@ -7,8 +7,8 @@
 //!    canvas as it was when the stroke began (as the Python engine's snapshot);
 //! 3. carry the colour along the dabs (pickup mixes into the brush), then composite.
 
+mod paint;
 mod path;
-mod stroke;
 
+pub use paint::{layout, paint_stroke, Options};
 pub use path::{samples, Sample};
-pub use stroke::{layout, paint_stroke, Options};

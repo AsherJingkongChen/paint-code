@@ -1,17 +1,14 @@
 [package]
 name = "paintcode"
-description = "paint-code: a small dab engine. Every brush mark is a row of anisotropic 2D Gaussians."
+description = "A small dab engine. Every brush mark is a row of anisotropic 2D Gaussians."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
 [dependencies]
-paintcode-math.workspace = true
-paintcode-scene.workspace = true
-paintcode-render.workspace = true
-paintcode-stroke.workspace = true
-paintcode-io.workspace = true
+png.workspace = true
+rayon.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]

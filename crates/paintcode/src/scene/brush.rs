@@ -1,7 +1,7 @@
-use paintcode_math::gauss;
+use crate::math::gauss;
 use serde_json::{Map, Value};
 
-use crate::{err, Error, Result};
+use super::{err, Error, Result};
 
 /// How one control point (x, y, pressure, tilt) becomes one dab. Fields as in `brush.py`.
 #[derive(Debug, Clone, PartialEq)]

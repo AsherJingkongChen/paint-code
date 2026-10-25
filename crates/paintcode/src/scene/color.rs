@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use crate::{err, Result};
+use super::{err, Result};
 
 /// `[r, g, b]` in 0..255, or `"#rrggbb"` / `"#rgb"`, to float32 0..1 (as `canvas.parse_color`).
 pub fn parse_color(c: &Value) -> Result<[f32; 3]> {
@@ -18,7 +18,7 @@ pub fn parse_color(c: &Value) -> Result<[f32; 3]> {
             let mut out = [0f32; 3];
             for (i, o) in out.iter_mut().enumerate() {
                 *o = u8::from_str_radix(&s[2 * i..2 * i + 2], 16)
-                    .map_err(|_| crate::Error(format!("bad colour {c}")))?
+                    .map_err(|_| super::Error(format!("bad colour {c}")))?
                     as f32;
             }
             out
@@ -28,7 +28,7 @@ pub fn parse_color(c: &Value) -> Result<[f32; 3]> {
             for (o, v) in out.iter_mut().zip(a) {
                 *o = v
                     .as_f64()
-                    .ok_or_else(|| crate::Error(format!("bad colour {c}")))?
+                    .ok_or_else(|| super::Error(format!("bad colour {c}")))?
                     as f32;
             }
             out

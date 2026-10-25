@@ -1,4 +1,4 @@
-"""paint-code: a small dab engine. Every brush mark is a row of anisotropic 2D Gaussians."""
+"""paintcode: a small dab engine. Every brush mark is a row of anisotropic 2D Gaussians."""
 
 from .brush import PRESETS, Brush, get as get_brush
 from .canvas import Canvas, parse_color

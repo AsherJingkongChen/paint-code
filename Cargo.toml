@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/*"]
+members = ["crates/paintcode", "bindings/python"]
 
 [workspace.package]
 version = "0.4.0"
@@ -9,11 +9,6 @@ license = "BSD-3-Clause"
 repository = "https://github.com/AsherJingkongChen/paint-code"
 
 [workspace.dependencies]
-paintcode-math = { path = "crates/math" }
-paintcode-scene = { path = "crates/scene" }
-paintcode-render = { path = "crates/render" }
-paintcode-stroke = { path = "crates/stroke" }
-paintcode-io = { path = "crates/io" }
 paintcode = { path = "crates/paintcode" }
 serde_json = "1"
 rayon = "1"

@@ -4,7 +4,7 @@ Both engines run the same float32 pixel arithmetic, so they agree to a few float
 remaining difference is numpy's vectorised exp and pow against the platform's libm. The gate is
 1e-5 on the float canvas (not on the PNG, where 8-bit rounding can flip a value by 1/255).
 
-Skipped when the core is not installed:  pip install ./crates/python
+Skipped when the core is not installed. `uv sync` builds it; or  pip install ./bindings/python
 """
 import json
 from pathlib import Path

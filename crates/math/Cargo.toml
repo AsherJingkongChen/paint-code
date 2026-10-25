@@ -1,7 +1,0 @@
-[package]
-name = "paintcode-math"
-description = "Leaf math for paint-code: the counter-based RNG and the dab profile. Depends on nothing."
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-repository.workspace = true

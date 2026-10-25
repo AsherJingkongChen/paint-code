@@ -4,7 +4,7 @@
 //! convolution, horizontal pass first, float64 accumulation, float32 between passes), so the
 //! paper matches `Canvas.grain_field` in `paintcode/canvas.py` to float rounding.
 
-use paintcode_math::rng;
+use crate::math::rng;
 use rayon::prelude::*;
 
 const SUPPORT: f64 = 2.0;

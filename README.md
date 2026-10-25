@@ -1,4 +1,4 @@
-# paint-code
+# paintcode
 
 A small dab engine for painting from code. A stroke is a list of control points with pressure and tilt; the engine resamples it along its arc length and lays down a row of **anisotropic 2D Gaussians**. Every mark you see is made of splats.
 
@@ -13,6 +13,7 @@ It was written so a language model can paint with its own strokes: the model wri
 ```bash
 pip install -e .            # numpy and pillow
 pip install -e '.[dev]'     # plus pytest
+uv sync                     # or: this package, the Rust core built as a Python module, and pytest
 ```
 
 ## Render
@@ -115,17 +116,15 @@ c.save("out.png")
 
 ## Rust core
 
-The same engine in Rust, one crate per part of the engine. Dependencies point one way, from the leaf up; cargo refuses cycles between crates, so the boundaries are enforced rather than agreed on.
+The same engine in Rust: one library, `crates/paintcode`, with one module per part of the engine, and the Python module built from it in `bindings/python`. Inside the library, dependencies point one way, from the leaf up; `tests/layering.rs` fails if a module reaches back down the list.
 
-| crate | part | does |
-|---|---|---|
-| `crates/math` | leaf | counter-based RNG, dab profile and geometry; depends on nothing |
-| `crates/scene` | bones | scene, brush and stroke types, presets, colours |
-| `crates/render` | render | dabs to pixels, paper grain, downsampling |
-| `crates/stroke` | flesh | control points to dabs, carrying paint |
-| `crates/io` | files | encoders and decoders, in pairs |
-| `crates/paintcode` | conducts | scene in, canvas out |
-| `crates/python` | binding | the core as the Python module `paintcode_core` |
+| module | part | may use | does |
+|---|---|---|---|
+| `math` | leaf | nothing | counter-based RNG, dab profile and geometry |
+| `scene` | bones | math | scene, brush and stroke types, presets, colours |
+| `render` | render | math | dabs to pixels, paper grain, downsampling |
+| `stroke` | flesh | math, scene, render | control points to dabs, carrying paint |
+| `io` | files | render | encoders and decoders, in pairs |
 
 This package stays the reference. The core paints the same float32 arithmetic and is checked against it at 1e-5 on the float canvas; on `kiku.json` the largest difference is 2.4e-7.
 
@@ -140,17 +139,17 @@ A stroke is painted in two parallel phases: every dab's kernel and the wet paint
 | Rust, 2 threads | 3.5 s |
 
 ```bash
+uv sync                                                                # builds the core into .venv; rebuilds when any .rs changes
+uv run python -c "import json, paintcode_core as c; open('k.png', 'wb').write(c.render_png(open('examples/kiku.json').read(), scale=2))"
 cargo run --release --example bench -- examples/kiku.json            # time a render
-pip install ./crates/python                                            # the core as a Python module
-python -c "import json, paintcode_core as c; open('k.png', 'wb').write(c.render_png(open('examples/kiku.json').read(), scale=2))"
 ```
 
 ## Tests
 
 ```bash
-python -m pytest            # the engine, and the core against it when paintcode_core is installed
-python -m pytest --slow     # also kiku.json through both engines (a minute)
-cargo test --release --workspace --exclude paintcode-py   # the fast path against the reference path
+uv run pytest               # the engine, and the core against it
+uv run pytest --slow        # also kiku.json through both engines (a minute)
+cargo test --release -p paintcode   # the fast path against the reference path, and the module layering
 ```
 
 They cover determinism, the pinned random numbers, jitter that stays put when another stroke changes, float32 pixel arithmetic, duplicate control points, stroke direction at joints, the pressure curves, the Gaussian profile, hardness, supersampling, spacing-independent pickup, dry backgrounds, smudging, and both export round trips.
