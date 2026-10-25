@@ -1,6 +1,6 @@
 [package]
-name = "paintcode-py"
-description = "Python binding of the paintcode core (module paintcode_core)."
+name = "paintcode-python"
+description = "The paintcode core as the Python extension paintcode._core."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,7 +8,7 @@ repository.workspace = true
 publish = false
 
 [lib]
-name = "paintcode_core"
+name = "paintcode_python"
 crate-type = ["cdylib"]
 
 [dependencies]

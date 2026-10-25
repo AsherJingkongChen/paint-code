@@ -1,4 +1,5 @@
-//! `paintcode_core`: the Rust core, seen from Python. Scene JSON in, bytes out.
+//! `paintcode._core`: the Rust core, seen from Python. Scene JSON in, bytes out.
+//! The friendly wrapper is `paintcode/core.py`.
 
 use paintcode::{RenderOpts, Scene};
 use pyo3::exceptions::PyValueError;
@@ -54,7 +55,8 @@ fn render_f32<'py>(
 }
 
 #[pymodule]
-fn paintcode_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
+#[pyo3(name = "_core")]
+fn paintcode_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(render_png, m)?)?;
     m.add_function(wrap_pyfunction!(render_f32, m)?)?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;

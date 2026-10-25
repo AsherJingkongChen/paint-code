@@ -1,31 +1,43 @@
 [build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
+requires = ["maturin>=1.5,<2"]
+build-backend = "maturin"
 
 [project]
 name = "paintcode"
-version = "0.4.0"
 description = "A small dab engine: brush strokes as rows of anisotropic 2D Gaussians, driven by JSON."
 readme = "README.md"
-license = { file = "LICENSE" }
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 dependencies = ["numpy>=1.24", "pillow>=10"]
+dynamic = ["version"]
 
 [project.optional-dependencies]
 dev = ["pytest>=7"]
 
-# uv sync: this package, the Rust core built from bindings/python, and the tests
 [dependency-groups]
-dev = ["pytest>=7", "paintcode-core"]
-
-[tool.uv.workspace]
-members = ["bindings/python"]
-
-[tool.uv.sources]
-paintcode-core = { workspace = true }
+dev = ["pytest>=7"]
 
 [project.scripts]
 paintcode = "paintcode.__main__:main"
 
-[tool.setuptools]
-packages = ["paintcode"]
+# One package, two engines: the Python sources in paintcode/ and the Rust core built from
+# bindings/python into paintcode/_core.
+[tool.maturin]
+manifest-path = "bindings/python/Cargo.toml"
+module-name = "paintcode._core"
+python-source = "."
+python-packages = ["paintcode"]
+features = ["pyo3/extension-module"]
+
+[tool.uv]
+# rebuild the extension whenever any Rust source changes, not only this file
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "Cargo.toml" },
+    { file = "Cargo.lock" },
+    { file = "crates/paintcode/Cargo.toml" },
+    { file = "crates/paintcode/src/**/*.rs" },
+    { file = "bindings/python/Cargo.toml" },
+    { file = "bindings/python/src/**/*.rs" },
+]

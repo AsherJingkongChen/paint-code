@@ -11,9 +11,8 @@ It was written so a language model can paint with its own strokes: the model wri
 ## Install
 
 ```bash
-pip install -e .            # numpy and pillow
-pip install -e '.[dev]'     # plus pytest
-uv sync                     # or: this package, the Rust core built as a Python module, and pytest
+uv sync                     # the package with both engines, and pytest (needs a Rust toolchain)
+pip install .               # or with pip
 ```
 
 ## Render
@@ -116,7 +115,7 @@ c.save("out.png")
 
 ## Rust core
 
-The same engine in Rust: one library, `crates/paintcode`, with one module per part of the engine, and the Python module built from it in `bindings/python`. Inside the library, dependencies point one way, from the leaf up; `tests/layering.rs` fails if a module reaches back down the list.
+The same engine in Rust: one library, `crates/paintcode`, with one module per part of the engine. `bindings/python` builds it into this package as `paintcode._core`, so `pip install` gives one package with both engines: `paintcode` (Python, the reference, and the only one with PLY, `.petal` and `--base` for now) and `paintcode.core` (Rust). Inside the library, dependencies point one way, from the leaf up; `tests/layering.rs` fails if a module reaches back down the list.
 
 | module | part | may use | does |
 |---|---|---|---|
@@ -126,7 +125,7 @@ The same engine in Rust: one library, `crates/paintcode`, with one module per pa
 | `stroke` | flesh | math, scene, render | control points to dabs, carrying paint |
 | `io` | files | render | encoders and decoders, in pairs |
 
-This package stays the reference. The core paints the same float32 arithmetic and is checked against it at 1e-5 on the float canvas; on `kiku.json` the largest difference is 2.4e-7.
+The Python engine stays the reference. The core paints the same float32 arithmetic and is checked against it at 1e-5 on the float canvas; on `kiku.json` the largest difference is 2.4e-7.
 
 A stroke is painted in two parallel phases: every dab's kernel and the wet paint under it are evaluated independently (pickup reads the canvas as it was when the stroke began, as the Python snapshot does), then the dabs are composited in order, one band of rows per thread. The fast path also skips the parts of each dab's square that lie outside its $q \le 9$ ellipse. None of this changes a bit: the tests render with the reference path (whole squares, `powf` everywhere, one thread) and require identical output.
 
@@ -139,8 +138,8 @@ A stroke is painted in two parallel phases: every dab's kernel and the wet paint
 | Rust, 2 threads | 3.5 s |
 
 ```bash
-uv sync                                                                # builds the core into .venv; rebuilds when any .rs changes
-uv run python -c "import json, paintcode_core as c; open('k.png', 'wb').write(c.render_png(open('examples/kiku.json').read(), scale=2))"
+uv sync                                                                # builds the core into paintcode/; rebuilds when any .rs changes
+uv run python -c "import json, paintcode.core as c; open('k.png', 'wb').write(c.render_png(json.load(open('examples/kiku.json')), scale=2))"
 cargo run --release --example bench -- examples/kiku.json            # time a render
 ```
 

@@ -1,10 +1,10 @@
-"""The Rust core (paintcode_core) against this package, the reference.
+"""The Rust core (paintcode.core) against the Python engine, the reference.
 
 Both engines run the same float32 pixel arithmetic, so they agree to a few float32 ulps; the
 remaining difference is numpy's vectorised exp and pow against the platform's libm. The gate is
 1e-5 on the float canvas (not on the PNG, where 8-bit rounding can flip a value by 1/255).
 
-Skipped when the core is not installed. `uv sync` builds it; or  pip install ./bindings/python
+Skipped when the core is not built (`uv sync` or `pip install .` builds it; both need Rust).
 """
 import json
 from pathlib import Path
@@ -14,15 +14,14 @@ import pytest
 
 from paintcode import render
 
-core = pytest.importorskip("paintcode_core")
+core = pytest.importorskip("paintcode.core", exc_type=ImportError)
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 GATE = 1e-5
 
 
 def rust(scene, **kw):
-    w, h, raw = core.render_f32(json.dumps(scene), **kw)
-    return np.frombuffer(raw, np.float32).reshape(h, w, 3)
+    return core.render_array(scene, **kw)
 
 
 def gap(scene, **kw):
@@ -60,7 +59,7 @@ def test_every_feature(kw):
 def test_png_is_the_same_painting():
     from io import BytesIO
     from PIL import Image
-    png = Image.open(BytesIO(core.render_png(json.dumps(SCENE))))
+    png = Image.open(BytesIO(core.render_png(SCENE)))
     ref = np.asarray(render(SCENE).to_image(), np.int16)
     assert np.abs(np.asarray(png, np.int16) - ref).max() <= 1
 
@@ -68,9 +67,9 @@ def test_png_is_the_same_painting():
 def test_errors_are_value_errors():
     bad = dict(SCENE, strokes=[{"brush": "ink", "sise": 3, "points": [[1, 1]]}])
     with pytest.raises(ValueError, match="stroke 0"):
-        core.render_png(json.dumps(bad))
+        core.render_png(bad)
 
 
 def test_keyword_only():
     with pytest.raises(TypeError):
-        core.render_png(json.dumps(SCENE), 2.0)
+        core.render_png(SCENE, 2.0)
