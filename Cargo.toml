@@ -13,9 +13,18 @@ paintcode = { path = "crates/paintcode" }
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 rayon = "1"
 png = "0.18"
-zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
 flate2 = "1"
 
+# Measured on kiku.json (one thread) and a clean build of the Python extension, 2-core VM:
+#   thin LTO, opt 3                    1.49 MB   4.33 s   29.8 s build
+#   + strip                            1.19 MB   4.26 s
+#   fat LTO, opt "s", strip (this)     0.92 MB   4.29 s   28.1 s build
+#   fat LTO, opt "z", strip            0.91 MB   6.76 s
+# Size drops by 38% at the same speed. panic stays "unwind": PyO3 turns a Rust panic into a
+# Python PanicException with catch_unwind, and with "abort" any panic would kill the host process.
 [profile.release]
 codegen-units = 1
-lto = "thin"
+lto = "fat"
+opt-level = "s"
+strip = "symbols"

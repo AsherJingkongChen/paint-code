@@ -1,5 +1,7 @@
 """The Python face of the engine. The engine itself is tested in Rust (crates/paintcode/tests);
 these check what crosses the boundary: arguments, bytes, errors, files."""
+import ast
+import inspect
 import io
 import json
 import subprocess
@@ -147,3 +149,20 @@ def test_a_petal_can_reuse_a_render_as_its_preview():
 def test_a_project_renders_like_its_scene():
     petal = paintcode.scene_to_petal(SCENE)
     assert paintcode.render_png(paintcode.petal_to_scene(petal)) == paintcode.render_png(SCENE)
+
+
+def test_the_stub_says_what_the_module_has():
+    """_core.pyi is written by hand (pyo3-stub-gen does not support pyo3 0.30 yet), so it is
+    checked here: the same functions, the same parameters, positional or keyword-only alike."""
+    from paintcode import _core
+    stub = ast.parse(Path(_core.__file__).with_name("_core.pyi").read_text())
+    funcs = {n.name: n for n in stub.body if isinstance(n, ast.FunctionDef)}
+    names = {n.target.id for n in stub.body if isinstance(n, ast.AnnAssign)}
+    real = {k for k, v in vars(_core).items() if callable(v) and not k.startswith("_")}
+    assert set(funcs) == real
+    assert {"PRESETS", "__version__"} <= names and all(hasattr(_core, n) for n in names - {"Scene", "Base"})
+    for name, node in funcs.items():
+        want = [(a.arg, "POSITIONAL_OR_KEYWORD") for a in node.args.args]
+        want += [(a.arg, "KEYWORD_ONLY") for a in node.args.kwonlyargs]
+        got = [(p.name, p.kind.name) for p in inspect.signature(getattr(_core, name)).parameters.values()]
+        assert got == want, name
