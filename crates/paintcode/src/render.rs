@@ -14,5 +14,5 @@ mod canvas;
 mod grain;
 mod image;
 
-pub use canvas::{Canvas, Dab, Footprint, Pickup, Source, Spans};
+pub use canvas::{Canvas, Dab, Footprint, Laid, Pickup, Source, Spans, MAX_PIXELS};
 pub use image::RgbImage;

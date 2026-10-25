@@ -10,6 +10,8 @@ repository.workspace = true
 png.workspace = true
 rayon.workspace = true
 serde_json.workspace = true
+zip.workspace = true
 
 [dev-dependencies]
 rayon.workspace = true
+flate2.workspace = true

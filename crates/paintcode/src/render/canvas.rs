@@ -22,6 +22,27 @@ pub struct Dab {
     pub grain_scale: f64,
 }
 
+/// A dab as it was laid on the canvas: its geometry (sigmas already raised to half a pixel) and
+/// the colour the brush held. This is what a PLY export writes, one splat per laid dab.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Laid {
+    pub dab: Dab,
+    pub rgb: [f32; 3],
+}
+
+/// The largest canvas the renderer allocates, in pixels, counted after scale and supersample.
+/// 2^28 pixels is a 16384 x 16384 canvas, 4 GiB of float RGB and wetness.
+pub const MAX_PIXELS: usize = 1 << 28;
+
+/// A zeroed buffer, or a message instead of an abort when the memory is not there.
+fn buffer(len: usize, what: &str) -> Result<Vec<f32>, String> {
+    let mut v = Vec::new();
+    v.try_reserve_exact(len)
+        .map_err(|_| format!("not enough memory for the {what} ({len} floats)"))?;
+    v.resize(len, 0f32);
+    Ok(v)
+}
+
 /// Which pixels of a dab's bounding square get evaluated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Spans {
@@ -92,26 +113,67 @@ pub struct Canvas {
     pub wet: Vec<f32>,
     /// Strokes painted so far; a stroke's index keys its jitter.
     pub strokes: i64,
+    /// Every dab laid so far, in order, when recording is on (for the PLY export).
+    pub laid: Option<Vec<Laid>>,
     grain: HashMap<u64, Vec<f32>>,
+}
+
+impl std::fmt::Debug for Canvas {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Canvas")
+            .field("width", &self.width)
+            .field("height", &self.height)
+            .field("seed", &self.seed)
+            .field("strokes", &self.strokes)
+            .field("laid", &self.laid.as_ref().map(Vec::len))
+            .finish_non_exhaustive()
+    }
 }
 
 const BAND: usize = 16;
 
 impl Canvas {
-    pub fn new(width: usize, height: usize, background: [f32; 3], seed: i64) -> Canvas {
-        let mut img = vec![0f32; width * height * 3];
+    /// A blank canvas. Fails, rather than aborting, when it is larger than [`MAX_PIXELS`] or the
+    /// memory cannot be had.
+    pub fn new(
+        width: usize,
+        height: usize,
+        background: [f32; 3],
+        seed: i64,
+    ) -> Result<Canvas, String> {
+        let pixels = width
+            .checked_mul(height)
+            .filter(|&n| n <= MAX_PIXELS)
+            .ok_or_else(|| {
+                format!(
+                    "a {width}x{height} canvas is too large: the limit is {MAX_PIXELS} pixels \
+                     (16384 x 16384), counted after scale and supersample"
+                )
+            })?;
+        let mut img = buffer(pixels * 3, "canvas")?;
         for px in img.chunks_exact_mut(3) {
             px.copy_from_slice(&background);
         }
-        Canvas {
+        Ok(Canvas {
             width,
             height,
             seed,
             img,
-            wet: vec![0f32; width * height],
+            wet: buffer(pixels, "wetness map")?,
             strokes: 0,
+            laid: None,
             grain: HashMap::new(),
+        })
+    }
+
+    /// A canvas that starts as an image. The image counts as dry paint: nothing is wet, so no
+    /// brush picks it up, but a smudge still loads from it.
+    pub fn from_rgb8(image: &RgbImage, seed: i64) -> Result<Canvas, String> {
+        let mut c = Canvas::new(image.width, image.height, [1.0; 3], seed)?;
+        for (o, &v) in c.img.iter_mut().zip(&image.data) {
+            *o = v as f32 / 255.0f32;
         }
+        Ok(c)
     }
 
     pub fn live(&self) -> Source<'_> {
@@ -227,7 +289,10 @@ impl Canvas {
 
         if spans == Spans::Ellipse {
             let (ex, ey) = gauss::half_extents(sx, sy, d.theta, q_pad);
-            fp.k.reserve((std::f64::consts::PI * (ex + 2.0) * (ey + 2.0)) as usize);
+            // the ellipse's area, but never more than the clipped square: a dab far larger than
+            // the canvas must not ask for more memory than the canvas has
+            let ellipse = std::f64::consts::PI * (ex + 2.0) * (ey + 2.0);
+            fp.k.reserve(ellipse.min(((x1 - x0) * (y1 - y0)) as f64) as usize);
         }
         let (mut wsum, mut kwsum) = (0f64, 0f64);
         let mut under = [0f64; 3];
@@ -388,6 +453,14 @@ impl Canvas {
         self.width = w;
         self.height = h;
         self.grain.clear();
+        // laid dabs stay in output pixel units
+        let k = n as f64;
+        for l in self.laid.iter_mut().flatten() {
+            l.dab.x /= k;
+            l.dab.y /= k;
+            l.dab.sx /= k;
+            l.dab.sy /= k;
+        }
     }
 
     pub fn to_rgb8(&self) -> RgbImage {

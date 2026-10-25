@@ -10,5 +10,5 @@
 mod paint;
 mod path;
 
-pub use paint::{layout, paint_stroke, Options};
+pub use paint::{layout, paint_stroke, Options, Painted};
 pub use path::{samples, Sample};

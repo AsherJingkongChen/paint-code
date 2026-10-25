@@ -1,5 +1,5 @@
 use crate::math::rng;
-use crate::render::{Canvas, Dab, Footprint, Pickup, Spans};
+use crate::render::{Canvas, Dab, Footprint, Laid, Pickup, Spans};
 use crate::scene::{Brush, Color};
 use rayon::prelude::*;
 
@@ -97,7 +97,16 @@ fn plan(seed: i64, brush: &Brush, sid: i64, path: &[Sample]) -> Vec<Plan> {
     out
 }
 
-/// Lay one stroke onto the canvas. Returns the number of dabs.
+/// What one stroke left behind.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Painted {
+    /// Dabs laid out along the path (some may fall off the canvas).
+    pub dabs: usize,
+    /// The colour on the brush after its last dab, pickup included.
+    pub carried: [f32; 3],
+}
+
+/// Lay one stroke onto the canvas.
 pub fn paint_stroke(
     canvas: &mut Canvas,
     brush: &Brush,
@@ -105,13 +114,17 @@ pub fn paint_stroke(
     points: &[[f64; 4]],
     smooth: bool,
     opts: Options,
-) -> usize {
+) -> Painted {
     let sid = canvas.strokes;
     canvas.strokes += 1;
     let path = samples(points, brush, smooth);
     let plans = plan(canvas.seed, brush, sid, &path);
     if plans.is_empty() {
-        return 0;
+        let carried = match color {
+            Color::Rgb(c) => *c,
+            Color::Smudge => [0.0; 3],
+        };
+        return Painted { dabs: 0, carried };
     }
     if brush.grain > 0.0 {
         canvas.prepare_grain(brush.grain_scale);
@@ -165,7 +178,7 @@ pub fn paint_stroke(
             .collect();
         // carry the colour along: each dab is laid in the colour the brush holds before its own pickup
         let mut colours = Vec::with_capacity(evaluated.len());
-        for (plan, (_, under)) in plans[range].iter().zip(&evaluated) {
+        for (plan, (_, under)) in plans[range.clone()].iter().zip(&evaluated) {
             colours.push(carried);
             if let (true, Some(u)) = (pickup, under) {
                 let mix = 1.0 - (1.0 - brush.pickup * u.wetness).powf(plan.mix_exp);
@@ -178,6 +191,20 @@ pub fn paint_stroke(
         let prints: Vec<(&Footprint, [f32; 3])> =
             evaluated.iter().map(|(f, _)| f).zip(colours).collect();
         canvas.composite(&prints);
+        if let Some(laid) = canvas.laid.as_mut() {
+            // only the dabs that reached the canvas, as they were laid
+            for (plan, (fp, rgb)) in plans[range].iter().zip(&prints) {
+                if !fp.skip {
+                    let mut dab = plan.dab;
+                    dab.sx = dab.sx.max(0.5);
+                    dab.sy = dab.sy.max(0.5);
+                    laid.push(Laid { dab, rgb: *rgb });
+                }
+            }
+        }
     }
-    plans.len()
+    Painted {
+        dabs: plans.len(),
+        carried,
+    }
 }

@@ -3,16 +3,18 @@ resolver = "2"
 members = ["crates/paintcode", "bindings/python"]
 
 [workspace.package]
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 license = "BSD-3-Clause"
 repository = "https://github.com/AsherJingkongChen/paintcode"
 
 [workspace.dependencies]
 paintcode = { path = "crates/paintcode" }
-serde_json = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
 rayon = "1"
 png = "0.18"
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+flate2 = "1"
 
 [profile.release]
 codegen-units = 1
