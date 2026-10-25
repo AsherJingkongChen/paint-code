@@ -1,6 +1,6 @@
 use crate::flower::{Brush, Color};
 use crate::math::rng;
-use crate::render::{Canvas, Dab, Footprint, Laid, Pickup, Spans};
+use crate::render::{Canvas, Dab, Footprint, Pickup, Spans};
 use rayon::prelude::*;
 
 use super::path::{Sample, samples};
@@ -80,6 +80,8 @@ fn plan(seed: i64, brush: &Brush, sid: i64, path: &[Sample]) -> Vec<Plan> {
             hardness: brush.hardness,
             grain: brush.grain,
             grain_scale: brush.grain_scale,
+            // the colour is known only when the paint is carried along, below
+            rgb: [0.0; 3],
         };
         out.push(Plan {
             dab,
@@ -190,7 +192,8 @@ pub fn paint_petal(
                     let mut dab = plan.dab;
                     dab.sx = dab.sx.max(0.5);
                     dab.sy = dab.sy.max(0.5);
-                    laid.push(Laid { dab, rgb: *rgb });
+                    dab.rgb = *rgb;
+                    laid.push(dab);
                 }
             }
         }

@@ -1,7 +1,7 @@
 //! The fast path must paint the same bits as the reference path: whole 3-sigma squares, `powf`
 //! on every pixel, one thread. Any speed-up that changes a pixel fails here.
 
-use paintcode::{Flower, RenderOpts, Spans, render};
+use paintcode::{Flower, RenderOpts, Spans, flower_to_canvas};
 
 fn flower(name: &str) -> Flower {
     let path = format!("{}/../../examples/{name}", env!("CARGO_MANIFEST_DIR"));
@@ -15,13 +15,13 @@ fn reference(s: &Flower) -> Vec<f32> {
         .num_threads(1)
         .build()
         .unwrap();
-    pool.install(|| render(s, &o).unwrap().img)
+    pool.install(|| flower_to_canvas(s, &o).unwrap().img)
 }
 
 #[test]
 fn fast_path_is_bit_identical_on_the_brush_sheet() {
     let s = flower("brush_sheet.flower.json");
-    let fast = render(&s, &RenderOpts::default()).unwrap().img;
+    let fast = flower_to_canvas(&s, &RenderOpts::default()).unwrap().img;
     assert!(fast == reference(&s), "the fast path changed pixels");
 }
 
@@ -31,7 +31,7 @@ fn chunking_and_snapshots_do_not_change_pixels() {
     let s = flower("brush_sheet.flower.json");
     let mut o = RenderOpts::default();
     o.petal.budget = 2_000;
-    assert!(render(&s, &o).unwrap().img == reference(&s));
+    assert!(flower_to_canvas(&s, &o).unwrap().img == reference(&s));
 }
 
 #[test]
@@ -48,9 +48,13 @@ fn errors_name_the_petal() {
 #[test]
 fn png_round_trip_of_a_render() {
     let s = flower("brush_sheet.flower.json");
-    let img = render(&s, &RenderOpts::default()).unwrap().to_rgb8();
+    let img = flower_to_canvas(&s, &RenderOpts::default())
+        .unwrap()
+        .to_rgb8();
     assert_eq!(
-        paintcode::png_to_image(&paintcode::image_to_png(&img)).unwrap(),
+        paintcode::decode_png(&paintcode::encode_png(&img, None))
+            .unwrap()
+            .0,
         img
     );
 }

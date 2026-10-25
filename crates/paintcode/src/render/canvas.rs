@@ -5,7 +5,8 @@ use rayon::prelude::*;
 
 use super::{RgbImage, grain};
 
-/// One anisotropic 2D Gaussian dab.
+/// One dab: an anisotropic 2D Gaussian with an opacity, a profile hardness, the paper grain it
+/// meets, and the colour the brush held when it was laid. A coat is a list of these.
 ///
 /// The profile is `flow * exp(-0.5 q^n)` with `n = 1 / (1 - hardness)` and `q` the squared
 /// Mahalanobis distance for standard deviations `sx` (major) and `sy` (minor) rotated by `theta`.
@@ -20,13 +21,6 @@ pub struct Dab {
     pub hardness: f64,
     pub grain: f64,
     pub grain_scale: f64,
-}
-
-/// A dab as it was laid on the canvas: its geometry (sigmas already raised to half a pixel) and
-/// the colour the brush held. This is what a PLY export writes, one splat per laid dab.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Laid {
-    pub dab: Dab,
     pub rgb: [f32; 3],
 }
 
@@ -104,8 +98,8 @@ pub struct Canvas {
     pub wet: Vec<f32>,
     /// Petals painted so far; a petal's index keys its jitter.
     pub petals: i64,
-    /// Every dab laid so far, in order, when recording is on (for the PLY export).
-    pub laid: Option<Vec<Laid>>,
+    /// Every dab laid so far, in order and in this canvas's pixels, when recording is on.
+    pub laid: Option<Vec<Dab>>,
     grain: HashMap<u64, Vec<f32>>,
 }
 
@@ -155,16 +149,6 @@ impl Canvas {
             laid: None,
             grain: HashMap::new(),
         })
-    }
-
-    /// A canvas that starts as an image. The image counts as dry paint: nothing is wet, so no
-    /// brush picks it up, but a smudge still loads from it.
-    pub fn from_rgb8(image: &RgbImage, seed: i64) -> Result<Canvas, String> {
-        let mut c = Canvas::new(image.width, image.height, [1.0; 3], seed)?;
-        for (o, &v) in c.img.iter_mut().zip(&image.data) {
-            *o = v as f32 / 255.0f32;
-        }
-        Ok(c)
     }
 
     pub fn live(&self) -> Source<'_> {
@@ -444,14 +428,6 @@ impl Canvas {
         self.width = w;
         self.height = h;
         self.grain.clear();
-        // laid dabs stay in output pixel units
-        let k = n as f64;
-        for l in self.laid.iter_mut().flatten() {
-            l.dab.x /= k;
-            l.dab.y /= k;
-            l.dab.sx /= k;
-            l.dab.sy /= k;
-        }
     }
 
     pub fn to_rgb8(&self) -> RgbImage {

@@ -3,8 +3,8 @@
 
 use paintcode::flower::{Brush, Color, preset};
 use paintcode::petal::{Options, paint_petal, samples};
-use paintcode::render::{Canvas, Dab, Spans};
-use paintcode::{Flower, RenderOpts, render};
+use paintcode::render::{Canvas, Coat, Dab, Spans};
+use paintcode::{Flower, RenderOpts, coat_to_canvas, flower_to_canvas, flower_to_coat};
 use serde_json::{Value, json};
 
 fn flower(v: Value) -> Flower {
@@ -17,7 +17,11 @@ fn small(seed: i64) -> Value {
 }
 
 fn paint(v: Value, opts: RenderOpts) -> Canvas {
-    render(&flower(v), &opts).unwrap()
+    flower_to_canvas(&flower(v), &opts).unwrap()
+}
+
+fn coat(v: Value, opts: RenderOpts) -> Coat {
+    flower_to_coat(&flower(v), &opts).unwrap()
 }
 
 fn rgb(hex: &str) -> [f32; 3] {
@@ -104,14 +108,7 @@ fn pressure_grows_radius_and_flow() {
 #[test]
 fn a_single_point_is_one_dab() {
     let v = json!({"width": 40, "height": 40, "petals": [{"brush": "round", "color": "#f00", "points": [[20, 20, 0.8]]}]});
-    let c = paint(
-        v,
-        RenderOpts {
-            record: true,
-            ..RenderOpts::default()
-        },
-    );
-    assert_eq!(c.laid.unwrap().len(), 1);
+    assert_eq!(coat(v, RenderOpts::default()).dabs.len(), 1);
 }
 
 #[test]
@@ -173,9 +170,10 @@ fn a_dab_is_a_gaussian() {
         hardness: 0.0,
         grain: 0.0,
         grain_scale: 3.0,
+        rgb: [1.0; 3],
     };
     let (fp, _) = c.footprint(&d, Spans::Ellipse, None);
-    c.composite(&[(&fp, [1.0; 3])]);
+    c.composite(&[(&fp, d.rgb)]);
     // one sigma from the centre (pixel centres at x + 0.5) the value is exp(-0.5)
     let v = c.img[(31 * 64 + 32 + 6 - 1) * 3] as f64;
     let want = (-0.5 * ((5.5f64 / 6.0).powi(2) + (0.5f64 / 6.0).powi(2))).exp();
@@ -303,33 +301,63 @@ fn editing_a_stroke_leaves_the_others_jitter_alone() {
     let mut tails = Vec::new();
     for first in [short, long] {
         let v = json!({"width": 160, "height": 80, "seed": 9, "petals": [first, second.clone()]});
-        let laid = paint(
-            v,
-            RenderOpts {
-                record: true,
-                ..RenderOpts::default()
-            },
-        )
-        .laid
-        .unwrap();
-        let tail: Vec<_> = laid
-            .iter()
-            .filter(|l| (l.dab.y - 60.0).abs() <= 15.0)
-            .map(|l| l.dab)
+        let dabs = coat(v, RenderOpts::default()).dabs;
+        let tail: Vec<_> = dabs
+            .into_iter()
+            .filter(|d| (d.y - 60.0).abs() <= 15.0)
             .collect();
         tails.push(tail);
     }
     assert!(!tails[0].is_empty() && tails[0] == tails[1]);
 }
 
+/// Wet paint, a smudge, paper grain and a hard edge: everything a dab can carry.
+fn busy() -> Value {
+    json!({"width": 90, "height": 60, "background": "#f4ecd8", "seed": 11, "petals": [
+        {"brush": "filbert", "color": "#c8782a", "points": [[5, 30, 0.3], [45, 10], [85, 40, 0.6]]},
+        {"brush": "flat", "hardness": 0.8, "grain": 0.6, "color": "#2050a0", "points": [[10, 50], [80, 20]]},
+        {"brush": "blender", "color": null, "points": [[20, 20], [70, 45]]},
+        {"brush": "ink", "color": "#101010", "points": [[45, 5, 0.2], [45, 55, 1]]}]})
+}
+
 #[test]
-fn a_petal_holds_the_scene_and_renders_the_same() {
-    let v = small(3);
-    let c = paint(v.clone(), RenderOpts::default());
-    let petal = paintcode::scene_to_petal(&v, Some(&c.to_rgb8())).unwrap();
-    let back = paintcode::petal_to_scene(&petal).unwrap();
-    assert_eq!(back, v);
-    assert!(paint(back, RenderOpts::default()).img == c.img);
+fn a_coat_lays_the_same_canvas_again() {
+    for (scale, supersample) in [(1.0, 1), (1.0, 2), (1.5, 3)] {
+        let opts = RenderOpts {
+            scale,
+            supersample,
+            ..RenderOpts::default()
+        };
+        let c = paint(busy(), opts);
+        let back = coat_to_canvas(&coat(busy(), opts)).unwrap();
+        assert_eq!((back.width, back.height), (c.width, c.height));
+        assert!(
+            back.img == c.img,
+            "scale {scale}, supersample {supersample}"
+        );
+    }
+}
+
+#[test]
+fn a_coat_survives_its_ply() {
+    let opts = RenderOpts {
+        supersample: 2,
+        ..RenderOpts::default()
+    };
+    let c = coat(busy(), opts);
+    let back = paintcode::decode_ply(&paintcode::encode_ply(&c)).unwrap();
+    assert_eq!(back, c);
+    assert!(coat_to_canvas(&back).unwrap().img == paint(busy(), opts).img);
+}
+
+#[test]
+fn a_flower_rides_on_its_canvas() {
+    let text = busy().to_string();
+    let image = paint(busy(), RenderOpts::default()).to_rgb8();
+    let png = paintcode::encode_png(&image, Some(&text));
+    assert_eq!(paintcode::decode_flower(&png).unwrap(), busy());
+    let (pixels, on) = paintcode::decode_png(&png).unwrap();
+    assert_eq!((pixels, on), (image, Some(text)));
 }
 
 /// A deliberately plain 3DGS-style rasteriser that reads only the PLY: builds each Gaussian's 3D
@@ -360,7 +388,7 @@ fn render_splats(ply: &[u8], background: [f32; 3]) -> (usize, usize, Vec<f32>) {
             col("rot_2")[i],
             col("rot_3")[i],
         ]
-        .map(|v| v as f64);
+        .map(|v| v);
         let norm = q.iter().map(|v| v * v).sum::<f64>().sqrt();
         let [qw, qx, qy, qz] = q.map(|v| v / norm);
         let r = [
@@ -375,8 +403,7 @@ fn render_splats(ply: &[u8], background: [f32; 3]) -> (usize, usize, Vec<f32>) {
                 2. * (qy * qz - qw * qx),
             ],
         ];
-        let sc =
-            [col("scale_0")[i], col("scale_1")[i], col("scale_2")[i]].map(|v| (v as f64).exp());
+        let sc = [col("scale_0")[i], col("scale_1")[i], col("scale_2")[i]].map(|v| v.exp());
         let m = |a: usize, b: usize| {
             (0..3)
                 .map(|k| r[a][k] * sc[k] * r[b][k] * sc[k])
@@ -390,12 +417,12 @@ fn render_splats(ply: &[u8], background: [f32; 3]) -> (usize, usize, Vec<f32>) {
         }
         let (ia, ib, id) = (d / det, -b / det, a / det);
         let (px, py) = (
-            col("x")[i] as f64 / unit + w as f64 / 2.0,
-            col("y")[i] as f64 / unit + h as f64 / 2.0,
+            col("x")[i] / unit + w as f64 / 2.0,
+            col("y")[i] / unit + h as f64 / 2.0,
         );
         let rgb = [col("f_dc_0")[i], col("f_dc_1")[i], col("f_dc_2")[i]]
-            .map(|v| v as f64 * 0.28209479177387814 + 0.5);
-        let alpha = 1.0 / (1.0 + (-(col("opacity")[i] as f64)).exp());
+            .map(|v| v * 0.28209479177387814 + 0.5);
+        let alpha = 1.0 / (1.0 + (-col("opacity")[i]).exp());
         let ext = 3.0 * a.max(d).sqrt();
         let x0 = ((px - ext).floor() as i64).max(0) as usize;
         let x1 = ((px + ext).ceil() as i64 + 1).clamp(0, w as i64) as usize;
@@ -426,15 +453,9 @@ fn a_soft_painting_round_trips_through_the_ply() {
             {"brush": "filbert", "hardness": 0, "grain": 0, "color": "#40a0e0", "points": [[10, 80], [110, 10]]},
             {"brush": "ink", "hardness": 0, "color": "#ffffff", "points": [[20, 45, 0.3], [100, 50, 1]]},
             {"brush": "blender", "color": null, "points": [[30, 30], [90, 60]]}]});
-    let c = paint(
-        v,
-        RenderOpts {
-            record: true,
-            ..RenderOpts::default()
-        },
-    );
+    let c = paint(v.clone(), RenderOpts::default());
     let bg = rgb("#203040");
-    let ply = paintcode::laid_to_ply(c.laid.as_deref().unwrap(), c.width, c.height, Some(bg));
+    let ply = paintcode::encode_ply(&coat(v, RenderOpts::default()));
     let (w, h, back) = render_splats(&ply, bg);
     assert_eq!((w, h), (c.width, c.height));
     let gap = back
@@ -450,7 +471,7 @@ fn a_soft_painting_round_trips_through_the_ply() {
 fn error(v: Value, opts: RenderOpts) -> String {
     match Flower::from_value(&v) {
         Err(e) => e.0,
-        Ok(s) => render(&s, &opts).unwrap_err().0,
+        Ok(s) => flower_to_canvas(&s, &opts).unwrap_err().0,
     }
 }
 
@@ -497,7 +518,7 @@ fn canvas_numbers_must_be_whole() {
         assert!(e.starts_with(k), "{e}");
     }
     assert!(Flower::from_value(&json!({"width": 100.0, "height": 50})).is_ok());
-    let e = render(
+    let e = flower_to_canvas(
         &flower(json!({"petals": []})),
         &RenderOpts {
             supersample: 0,
@@ -518,7 +539,9 @@ fn the_old_names_are_explained() {
 #[test]
 fn far_points_are_measured_against_the_flower() {
     let v = json!({"width": 10, "height": 10, "petals": [{"brush": "round", "points": [[20, 20], [300, 200]]}]});
-    let e = render(&flower(v), &RenderOpts::default()).unwrap_err().0;
+    let e = flower_to_canvas(&flower(v), &RenderOpts::default())
+        .unwrap_err()
+        .0;
     assert!(e.contains("too far outside the 10x10 canvas"), "{e}");
 }
 

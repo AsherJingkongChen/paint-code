@@ -4,13 +4,17 @@
 //! Each case checks the 8-bit PNG (no value off by more than 1/255, and at most one value in
 //! 10,000 off at all: libm rounding can flip a value that sits on a half step, a real change
 //! moves many), the float canvas within 1e-5 plus half a 16-bit step for the small cases, and
-//! every splat field of the PLY cases.
+//! every splat field of the PLY cases. Every case also goes through its coat, written as a PLY and
+//! read back, and must lay the same canvas again bit for bit.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use paintcode::io::{PLY_FIELDS, ply_to_splats};
-use paintcode::{Flower, RenderOpts, laid_to_ply, png_to_image, render};
+use paintcode::{
+    Flower, RenderOpts, coat_to_canvas, decode_ply, decode_png, encode_ply, flower_to_canvas,
+    flower_to_coat,
+};
 use serde_json::Value;
 
 const GATE: f32 = 1e-5 + 0.5 / 65535.0;
@@ -32,10 +36,10 @@ fn manifest() -> serde_json::Map<String, Value> {
         .clone()
 }
 
-fn max_gap(a: &[f32], b: &[f32], f: impl Fn(f32) -> f32) -> f32 {
+fn max_gap(a: &[f64], b: &[f64], f: impl Fn(f32) -> f32) -> f32 {
     a.iter()
         .zip(b)
-        .map(|(x, y)| (f(*x) - f(*y)).abs())
+        .map(|(x, y)| (f(*x as f32) - f(*y as f32)).abs())
         .fold(0f32, f32::max)
 }
 
@@ -48,10 +52,9 @@ fn check(name: &str) {
     let opts = RenderOpts {
         scale: o.get("scale").and_then(Value::as_f64).unwrap_or(1.0),
         supersample: o.get("supersample").and_then(Value::as_i64).unwrap_or(1),
-        record: o.get("ply").is_some(),
         ..RenderOpts::default()
     };
-    let canvas = render(&flower, &opts).unwrap();
+    let canvas = flower_to_canvas(&flower, &opts).unwrap();
     let (w, h) = (
         case["width"].as_u64().unwrap() as usize,
         case["height"].as_u64().unwrap() as usize,
@@ -59,7 +62,9 @@ fn check(name: &str) {
     assert_eq!((canvas.width, canvas.height), (w, h), "{name}: size");
 
     // the PNG: the same, but for a few values one step off where 8-bit rounding sits on a tie
-    let want = png_to_image(&std::fs::read(golden(&format!("{name}.png"))).unwrap()).unwrap();
+    let want = decode_png(&std::fs::read(golden(&format!("{name}.png"))).unwrap())
+        .unwrap()
+        .0;
     let got = canvas.to_rgb8();
     let diffs: Vec<i16> = want
         .data
@@ -95,15 +100,29 @@ fn check(name: &str) {
     // the PLY: the same header, and every field as close as the numpy engine's rounding allows
     // (it rounded x, y, sx, sy to 3 decimals and theta, colour, alpha to 4 before writing; the
     // core writes them unrounded)
+    // the coat, through its file and back: the same canvas, every bit
+    let coat = flower_to_coat(&flower, &opts).unwrap();
+    let ply = encode_ply(&coat);
+    let again = coat_to_canvas(&decode_ply(&ply).unwrap()).unwrap();
+    assert!(
+        again.img == canvas.img,
+        "{name}: the coat lays another canvas"
+    );
+
     if let Some(f) = case.get("ply").and_then(Value::as_str) {
         let want = ply_to_splats(&std::fs::read(golden(f)).unwrap()).unwrap();
-        let laid = canvas.laid.as_deref().unwrap();
-        let bg = Some(flower.background);
-        let got = ply_to_splats(&laid_to_ply(laid, w, h, bg)).unwrap();
-        assert_eq!(got.names, want.names);
-        assert_eq!(got.comments, want.comments);
+        let got = ply_to_splats(&ply).unwrap();
+        // the exact fields and the paintcode comment come after what the numpy engine wrote
+        assert_eq!(got.names[..PLY_FIELDS.len()], want.names);
+        let comments: Vec<_> = got
+            .comments
+            .iter()
+            .filter(|c| !c.starts_with("paintcode "))
+            .cloned()
+            .collect();
+        assert_eq!(comments, want.comments);
         assert_eq!(
-            laid.len() as u64,
+            coat.dabs.len() as u64,
             case["splats"].as_u64().unwrap(),
             "{name}: splat count"
         );
@@ -153,7 +172,7 @@ fn ply_export() {
 
 #[test]
 fn ply_export_supersampled() {
-    // laid dabs come back to output pixel units when the canvas is box-filtered down
+    // the 3DGS fields are in the pixels of the finished canvas, not the supersampled one
     check("ply_scene_ss2");
 }
 
@@ -166,11 +185,4 @@ fn brush_sheet() {
 #[ignore = "slow without --release; CI runs it with --include-ignored"]
 fn kiku() {
     check("kiku");
-}
-
-#[test]
-fn the_petal_made_by_the_numpy_engine_still_opens() {
-    let petal = std::fs::read(root().join("examples/kiku.petal")).unwrap();
-    let scene = paintcode::petal_to_scene(&petal).unwrap();
-    assert_eq!(scene["strokes"].as_array().unwrap().len(), 629);
 }

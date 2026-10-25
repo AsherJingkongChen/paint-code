@@ -30,7 +30,7 @@ fn main() {
     }
     let flower = paintcode::Flower::from_json(&std::fs::read_to_string(path).unwrap()).unwrap();
     let t = Instant::now();
-    let canvas = paintcode::render(&flower, &opts).unwrap();
+    let canvas = paintcode::flower_to_canvas(&flower, &opts).unwrap();
     let dt = t.elapsed();
     println!(
         "{path}: {}x{}  {:.0} ms  ({} threads, {:?})",

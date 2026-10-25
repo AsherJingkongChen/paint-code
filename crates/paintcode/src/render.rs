@@ -11,8 +11,10 @@
 //! `Spans::Square` reference path), so splitting the work does not change a single bit.
 
 mod canvas;
+mod coat;
 mod grain;
 mod image;
 
-pub use canvas::{Canvas, Dab, Footprint, Laid, MAX_PIXELS, Pickup, Source, Spans};
+pub use canvas::{Canvas, Dab, Footprint, MAX_PIXELS, Pickup, Source, Spans};
+pub use coat::{Coat, coat_to_canvas};
 pub use image::RgbImage;

@@ -1,185 +1,340 @@
 //! `paintcode._core`: the engine, seen from Python. This is the whole Python package; the files
 //! in `python/paintcode/` only re-export it and describe it (`_core.pyi`).
 //!
-//! A scene is a JSON string or anything `json.dumps` takes (usually a dict). A base image is PNG
-//! bytes or a path to a PNG.
+//! A flower is a dict (anything `json.dumps` takes); paths are a str or an `os.PathLike`, and the
+//! files are read and written here, in Rust. A function with more than one parameter takes them
+//! by keyword only.
+
+use std::path::{Path, PathBuf};
 
 use paintcode::render::RgbImage;
 use paintcode::{Error, Flower, RenderOpts, io};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{PyBytes, PyString};
+use pyo3::types::PyBytes;
+use serde_json::Value;
 
 fn value_error(e: Error) -> PyErr {
     PyValueError::new_err(e.0)
 }
 
-/// The scene as JSON text: a str is taken as it is, anything else goes through `json.dumps`.
-fn scene_text(py: Python<'_>, scene: &Bound<'_, PyAny>) -> PyResult<String> {
-    if let Ok(s) = scene.cast::<PyString>() {
-        return Ok(s.to_str()?.to_owned());
-    }
-    py.import("json")?
-        .call_method1("dumps", (scene,))?
-        .extract::<String>()
+/// A file's mistake, named with its path.
+fn file_error(path: &Path, e: String) -> PyErr {
+    PyValueError::new_err(format!("{}: {e}", path.display()))
 }
 
-fn parse(py: Python<'_>, scene: &Bound<'_, PyAny>) -> PyResult<(Flower, serde_json::Value)> {
-    let text = scene_text(py, scene)?;
-    let value: serde_json::Value = serde_json::from_str(&text)
-        .map_err(|e| PyValueError::new_err(format!("scene is not JSON: {e}")))?;
+/// A flower dict as JSON, checked: what the engine would refuse is refused here, before any file
+/// is written or any pixel is painted.
+fn flower_value(py: Python<'_>, flower: &Bound<'_, PyAny>) -> PyResult<(Flower, Value)> {
+    let text: String = py
+        .import("json")?
+        .call_method1("dumps", (flower,))?
+        .extract()?;
+    let value: Value = serde_json::from_str(&text)
+        .map_err(|e| PyValueError::new_err(format!("flower is not JSON: {e}")))?;
     let parsed = Flower::from_value(&value).map_err(value_error)?;
     Ok((parsed, value))
 }
 
-/// A base image from PNG bytes, or from a path (str or os.PathLike) to a PNG file.
-fn base_image(py: Python<'_>, base: Option<&Bound<'_, PyAny>>) -> PyResult<Option<RgbImage>> {
-    let Some(base) = base else { return Ok(None) };
-    let bytes = match base.cast::<PyBytes>() {
-        Ok(b) => b.as_bytes().to_vec(),
-        Err(_) => {
-            let path: String = py
-                .import("os")?
-                .call_method1("fspath", (base,))?
-                .extract()?;
-            std::fs::read(&path)?
-        }
-    };
-    io::png_to_image(&bytes)
-        .map(Some)
-        .map_err(|e| PyValueError::new_err(format!("base image: {e}")))
+/// JSON to a dict, keys in their written order.
+fn to_dict<'py>(py: Python<'py>, value: &Value) -> PyResult<Bound<'py, PyAny>> {
+    py.import("json")?
+        .call_method1("loads", (value.to_string(),))
 }
 
-fn opts(scale: f64, supersample: Option<i64>, record: bool) -> RenderOpts {
+fn opts(scale: f64, supersample: i64) -> RenderOpts {
     RenderOpts {
         scale,
-        supersample: supersample.unwrap_or(1),
-        record,
+        supersample,
         ..RenderOpts::default()
     }
 }
 
-/// Render a scene to PNG bytes.
-///
-/// scale renders larger (coordinates and brush sizes scale together); supersample paints at N
-/// times the size and box-filters down (default: canvas.supersample); base paints over a PNG
-/// (bytes or a path) at its own size.
+/// The pixels you see, 8-bit RGB, and the flower on them if one was put there.
+#[pyclass(frozen, module = "paintcode")]
+struct Canvas {
+    image: RgbImage,
+    /// The flower's JSON, as `encode_flower` wrote it.
+    flower: Option<String>,
+}
+
+impl Canvas {
+    fn bare(image: RgbImage) -> Canvas {
+        Canvas {
+            image,
+            flower: None,
+        }
+    }
+}
+
+#[pymethods]
+impl Canvas {
+    #[getter]
+    fn width(&self) -> usize {
+        self.image.width
+    }
+
+    #[getter]
+    fn height(&self) -> usize {
+        self.image.height
+    }
+
+    /// One pixel as (r, g, b), 0..255.
+    #[pyo3(signature = (*, x, y))]
+    fn peek(&self, x: usize, y: usize) -> PyResult<(u8, u8, u8)> {
+        let (w, h) = (self.image.width, self.image.height);
+        if x >= w || y >= h {
+            return Err(PyValueError::new_err(format!(
+                "pixel ({x}, {y}) is outside the {w}x{h} canvas"
+            )));
+        }
+        let i = (y * w + x) * 3;
+        let d = &self.image.data;
+        Ok((d[i], d[i + 1], d[i + 2]))
+    }
+
+    /// A rectangle of this canvas as a canvas of its own. The flower stays behind: it painted the
+    /// whole canvas, not this part.
+    #[pyo3(signature = (*, x, y, width, height))]
+    fn crop(&self, x: usize, y: usize, width: usize, height: usize) -> PyResult<Canvas> {
+        let (w, h) = (self.image.width, self.image.height);
+        let fits =
+            |at: usize, len: usize, side: usize| at.checked_add(len).is_some_and(|e| e <= side);
+        if width == 0 || height == 0 || !fits(x, width, w) || !fits(y, height, h) {
+            return Err(PyValueError::new_err(format!(
+                "a {width}x{height} crop at ({x}, {y}) does not fit in the {w}x{h} canvas"
+            )));
+        }
+        let mut data = Vec::with_capacity(width * height * 3);
+        for row in y..y + height {
+            let i = (row * w + x) * 3;
+            data.extend_from_slice(&self.image.data[i..i + width * 3]);
+        }
+        Ok(Canvas::bare(RgbImage {
+            width,
+            height,
+            data,
+        }))
+    }
+
+    /// Every pixel, row by row, as RGB bytes: `numpy.frombuffer(c.pixels(), "u1").reshape(
+    /// c.height, c.width, 3)`.
+    fn pixels<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new(py, &self.image.data)
+    }
+
+    /// The canvas as PNG bytes, with its flower if one is on it: what save_canvas writes.
+    fn png<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new(py, &io::encode_png(&self.image, self.flower.as_deref()))
+    }
+
+    fn __repr__(&self) -> String {
+        let on = if self.flower.is_some() {
+            ", with its flower"
+        } else {
+            ""
+        };
+        format!("<Canvas {}x{}{on}>", self.image.width, self.image.height)
+    }
+}
+
+/// Every dab a flower laid, in order: what coat_to_canvas lays again.
+#[pyclass(frozen, module = "paintcode")]
+struct Coat(paintcode::Coat);
+
+#[pymethods]
+impl Coat {
+    /// The canvas it makes, in pixels.
+    #[getter]
+    fn width(&self) -> usize {
+        self.0.width
+    }
+
+    #[getter]
+    fn height(&self) -> usize {
+        self.0.height
+    }
+
+    #[getter]
+    fn supersample(&self) -> usize {
+        self.0.supersample
+    }
+
+    /// The number of dabs.
+    fn __len__(&self) -> usize {
+        self.0.dabs.len()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "<Coat of {} dabs for a {}x{} canvas>",
+            self.0.dabs.len(),
+            self.0.width,
+            self.0.height
+        )
+    }
+}
+
+// ------------------------------------------------------------------------------------- files
+
+/// The flower in a `.flower.json`, or on a `.flower.png`. A PNG without a flower is an error.
 #[pyfunction]
-#[pyo3(signature = (scene, *, scale = 1.0, supersample = None, base = None))]
-fn render_png<'py>(
-    py: Python<'py>,
-    scene: &Bound<'py, PyAny>,
+fn load_flower<'py>(py: Python<'py>, path: PathBuf) -> PyResult<Bound<'py, PyAny>> {
+    let bytes = std::fs::read(&path)?;
+    let value = io::decode_flower(&bytes).map_err(|e| file_error(&path, e))?;
+    Flower::from_value(&value).map_err(|e| file_error(&path, e.0))?;
+    to_dict(py, &value)
+}
+
+/// Write a flower as JSON, one petal per line.
+#[pyfunction]
+#[pyo3(signature = (*, flower, path))]
+fn save_flower(py: Python<'_>, flower: &Bound<'_, PyAny>, path: PathBuf) -> PyResult<()> {
+    let (_, value) = flower_value(py, flower)?;
+    std::fs::write(&path, io::encode_flower(&value))?;
+    Ok(())
+}
+
+/// The canvas in a PNG: only the pixels, whether or not a flower is on it (load_flower takes the
+/// flower). Any PNG opens: grey, palette, alpha and 16-bit images become 8-bit RGB.
+#[pyfunction]
+fn load_canvas(path: PathBuf) -> PyResult<Canvas> {
+    let bytes = std::fs::read(&path)?;
+    let (image, _) = io::decode_png(&bytes).map_err(|e| file_error(&path, e))?;
+    Ok(Canvas::bare(image))
+}
+
+/// Write a canvas as a PNG, with its flower if one is on it.
+#[pyfunction]
+#[pyo3(signature = (*, canvas, path))]
+fn save_canvas(py: Python<'_>, canvas: PyRef<'_, Canvas>, path: PathBuf) -> PyResult<()> {
+    let c: &Canvas = &canvas;
+    let png = py.detach(|| io::encode_png(&c.image, c.flower.as_deref()));
+    std::fs::write(&path, png)?;
+    Ok(())
+}
+
+/// The coat in a `.coat.ply`. A 3DGS file from elsewhere is not a coat and is refused.
+#[pyfunction]
+fn load_coat(path: PathBuf) -> PyResult<Coat> {
+    let bytes = std::fs::read(&path)?;
+    io::decode_ply(&bytes)
+        .map(Coat)
+        .map_err(|e| file_error(&path, e))
+}
+
+/// Write a coat as a binary PLY in the 3DGS layout that any splat viewer opens, with every dab
+/// kept exactly, so load_coat gives the same coat back.
+#[pyfunction]
+#[pyo3(signature = (*, coat, path))]
+fn save_coat(py: Python<'_>, coat: PyRef<'_, Coat>, path: PathBuf) -> PyResult<()> {
+    let coat: &paintcode::Coat = &coat.0;
+    let ply = py.detach(|| io::encode_ply(coat));
+    std::fs::write(&path, ply)?;
+    Ok(())
+}
+
+// ------------------------------------------------------------------------------- transforms
+
+/// Paint a flower: its canvas.
+#[pyfunction]
+#[pyo3(signature = (*, flower, scale = 1.0, supersample = 1))]
+fn flower_to_canvas(
+    py: Python<'_>,
+    flower: &Bound<'_, PyAny>,
     scale: f64,
-    supersample: Option<i64>,
-    base: Option<&Bound<'py, PyAny>>,
-) -> PyResult<Bound<'py, PyBytes>> {
-    let (scene, _) = parse(py, scene)?;
-    let base = base_image(py, base)?;
-    let o = opts(scale, supersample, false);
-    let png = py
-        .detach(|| {
-            paintcode::render(&scene, &o)
-                .map(|c| paintcode::image_to_png(&c.to_rgb8()))
-        })
+    supersample: i64,
+) -> PyResult<Canvas> {
+    let (flower, _) = flower_value(py, flower)?;
+    let o = opts(scale, supersample);
+    let canvas = py
+        .detach(|| paintcode::flower_to_canvas(&flower, &o))
         .map_err(value_error)?;
-    Ok(PyBytes::new(py, &png))
+    Ok(Canvas::bare(canvas.to_rgb8()))
 }
 
-/// Render a scene and export every dab as a flat 3D Gaussian: PLY bytes in the 3DGS layout.
-/// Takes the same options as render_png.
+/// Paint a flower and keep every dab it lays: its coat.
 #[pyfunction]
-#[pyo3(signature = (scene, *, scale = 1.0, supersample = None, base = None))]
-fn render_ply<'py>(
-    py: Python<'py>,
-    scene: &Bound<'py, PyAny>,
+#[pyo3(signature = (*, flower, scale = 1.0, supersample = 1))]
+fn flower_to_coat(
+    py: Python<'_>,
+    flower: &Bound<'_, PyAny>,
     scale: f64,
-    supersample: Option<i64>,
-    base: Option<&Bound<'py, PyAny>>,
-) -> PyResult<Bound<'py, PyBytes>> {
-    let (scene, _) = parse(py, scene)?;
-    let base = base_image(py, base)?;
-    let o = opts(scale, supersample, true);
-    let paper = Some(scene.background);
-    let ply = py
-        .detach(|| {
-            paintcode::render(&scene, &o).map(|c| {
-                let laid = c.laid.as_deref().unwrap_or(&[]);
-                paintcode::laid_to_ply(laid, c.width, c.height, paper)
-            })
-        })
-        .map_err(value_error)?;
-    Ok(PyBytes::new(py, &ply))
+    supersample: i64,
+) -> PyResult<Coat> {
+    let (flower, _) = flower_value(py, flower)?;
+    let o = opts(scale, supersample);
+    py.detach(|| paintcode::flower_to_coat(&flower, &o))
+        .map(Coat)
+        .map_err(value_error)
 }
 
-/// What goes into a .petal as its preview: a render of the scene, nothing, or a PNG already made.
-#[derive(FromPyObject)]
-enum Preview<'py> {
-    Render(bool),
-    Png(Bound<'py, PyBytes>),
-}
-
-/// Pack a scene as a .petal project (bytes): the strokes, losslessly compressed, never the dabs.
-/// preview: True renders the scene for a small preview.png inside, False leaves it out, and PNG
-/// bytes (the render you already have) are used as they are, without rendering again.
+/// Lay a coat's dabs again: the same canvas, bit for bit, as painting its flower.
 #[pyfunction]
-#[pyo3(signature = (scene, *, preview = Preview::Render(true)))]
-fn scene_to_petal<'py>(
+fn coat_to_canvas(py: Python<'_>, coat: PyRef<'_, Coat>) -> PyResult<Canvas> {
+    let coat: &paintcode::Coat = &coat.0;
+    let canvas = py
+        .detach(|| paintcode::coat_to_canvas(coat))
+        .map_err(value_error)?;
+    Ok(Canvas::bare(canvas.to_rgb8()))
+}
+
+/// The canvas with a flower on it, which save_canvas writes into the PNG. Any flower that was on
+/// it is replaced.
+#[pyfunction]
+#[pyo3(signature = (*, flower, canvas))]
+fn flower_on_canvas(
+    py: Python<'_>,
+    flower: &Bound<'_, PyAny>,
+    canvas: PyRef<'_, Canvas>,
+) -> PyResult<Canvas> {
+    let (_, value) = flower_value(py, flower)?;
+    Ok(Canvas {
+        image: canvas.image.clone(),
+        flower: Some(io::encode_flower(&value)),
+    })
+}
+
+/// The flower on a canvas. A canvas without one is an error.
+#[pyfunction]
+fn flower_off_canvas<'py>(
     py: Python<'py>,
-    scene: &Bound<'py, PyAny>,
-    preview: Preview<'py>,
-) -> PyResult<Bound<'py, PyBytes>> {
-    let (parsed, value) = parse(py, scene)?;
-    let given = match &preview {
-        Preview::Png(b) => Some(
-            io::png_to_image(b.as_bytes())
-                .map_err(|e| PyValueError::new_err(format!("preview: {e}")))?,
-        ),
-        Preview::Render(_) => None,
-    };
-    let render = matches!(preview, Preview::Render(true));
-    let petal = py
-        .detach(|| {
-            let image = match given {
-                Some(img) => Some(img),
-                None if render => {
-                    Some(paintcode::render(&parsed, &RenderOpts::default())?.to_rgb8())
-                }
-                None => None,
-            };
-            paintcode::scene_to_petal(&value, image.as_ref()).map_err(Error)
-        })
-        .map_err(value_error)?;
-    Ok(PyBytes::new(py, &petal))
-}
-
-/// The scene inside a .petal project (bytes), as a dict with its keys in their written order.
-#[pyfunction]
-fn petal_to_scene<'py>(py: Python<'py>, petal: &[u8]) -> PyResult<Bound<'py, PyAny>> {
-    let value = paintcode::petal_to_scene(petal).map_err(PyValueError::new_err)?;
-    py.import("json")?
-        .call_method1("loads", (value.to_string(),))
+    canvas: PyRef<'py, Canvas>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let text = canvas
+        .flower
+        .as_deref()
+        .ok_or_else(|| PyValueError::new_err("no flower on this canvas"))?;
+    let value: Value = serde_json::from_str(text)
+        .map_err(|e| PyValueError::new_err(format!("flower is not JSON: {e}")))?;
+    to_dict(py, &value)
 }
 
 #[pymodule]
 #[pyo3(name = "_core")]
 fn paintcode_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(render_png, m)?)?;
-    m.add_function(wrap_pyfunction!(render_ply, m)?)?;
-    m.add_function(wrap_pyfunction!(scene_to_petal, m)?)?;
-    m.add_function(wrap_pyfunction!(petal_to_scene, m)?)?;
-    // every preset with its fields, as a scene would write them
-    let presets: serde_json::Map<String, serde_json::Value> = paintcode::flower::PRESET_NAMES
+    m.add_class::<Canvas>()?;
+    m.add_class::<Coat>()?;
+    m.add_function(wrap_pyfunction!(load_flower, m)?)?;
+    m.add_function(wrap_pyfunction!(save_flower, m)?)?;
+    m.add_function(wrap_pyfunction!(load_canvas, m)?)?;
+    m.add_function(wrap_pyfunction!(save_canvas, m)?)?;
+    m.add_function(wrap_pyfunction!(load_coat, m)?)?;
+    m.add_function(wrap_pyfunction!(save_coat, m)?)?;
+    m.add_function(wrap_pyfunction!(flower_to_canvas, m)?)?;
+    m.add_function(wrap_pyfunction!(flower_to_coat, m)?)?;
+    m.add_function(wrap_pyfunction!(coat_to_canvas, m)?)?;
+    m.add_function(wrap_pyfunction!(flower_on_canvas, m)?)?;
+    m.add_function(wrap_pyfunction!(flower_off_canvas, m)?)?;
+    // every brush with its fields, as a flower would write them
+    let brushes: serde_json::Map<String, Value> = paintcode::flower::PRESET_NAMES
         .iter()
         .map(|n| {
-            let b = paintcode::flower::preset(n).expect("a listed preset");
-            (n.to_string(), serde_json::Value::Object(b.to_fields()))
+            let b = paintcode::flower::preset(n).expect("a listed brush");
+            (n.to_string(), Value::Object(b.to_fields()))
         })
         .collect();
-    let presets = m
-        .py()
-        .import("json")?
-        .call_method1("loads", (serde_json::Value::Object(presets).to_string(),))?;
-    m.add("PRESETS", presets)?;
+    m.add("BRUSHES", to_dict(m.py(), &Value::Object(brushes))?)?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
 }

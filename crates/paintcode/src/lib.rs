@@ -11,11 +11,12 @@
 //! |----------|--------|-----------------------|-------------------------------------------------|
 //! | `math`   | leaf   | nothing               | counter-based RNG, dab profile and geometry     |
 //! | `flower` | bones  | math                  | flower, petal and brush types, presets, colours |
-//! | `render` | render | math                  | dabs to pixels, paper grain, downsampling       |
+//! | `render` | render | math                  | dabs to pixels, coats, paper grain, downsampling|
 //! | `petal`  | flesh  | math, flower, render  | petals to dabs, carrying paint                  |
 //! | `io`     | files  | render                | encoders and decoders, in pairs                 |
 //!
-//! This file only conducts: [`render`] walks the petals of a [`Flower`] over a [`Canvas`].
+//! This file only conducts: [`flower_to_canvas`] walks the petals of a [`Flower`] over a [`Canvas`],
+//! and [`flower_to_coat`] keeps the dabs it lays, which [`coat_to_canvas`] lays again.
 
 pub mod flower;
 pub mod io;
@@ -24,9 +25,9 @@ pub mod petal;
 pub mod render;
 
 pub use flower::{Error, Flower, Result};
-pub use io::{image_to_png, laid_to_ply, petal_to_scene, png_to_image, scene_to_petal};
+pub use io::{decode_flower, decode_ply, decode_png, encode_flower, encode_ply, encode_png};
 pub use petal::{Options, Painted};
-pub use render::{Canvas, Laid, RgbImage, Spans};
+pub use render::{Canvas, Coat, RgbImage, Spans};
 
 #[derive(Debug, Clone, Copy)]
 pub struct RenderOpts {
@@ -34,8 +35,6 @@ pub struct RenderOpts {
     pub scale: f64,
     /// Paint at N times the size and box-filter down; crisp hard edges at 2 or 3.
     pub supersample: i64,
-    /// Keep every laid dab on the canvas (`Canvas::laid`), for a PLY export.
-    pub record: bool,
     pub petal: Options,
 }
 
@@ -44,14 +43,35 @@ impl Default for RenderOpts {
         RenderOpts {
             scale: 1.0,
             supersample: 1,
-            record: false,
             petal: Options::default(),
         }
     }
 }
 
 /// Paint a flower on a blank canvas.
-pub fn render(flower: &Flower, opts: &RenderOpts) -> Result<Canvas> {
+pub fn flower_to_canvas(flower: &Flower, opts: &RenderOpts) -> Result<Canvas> {
+    paint(flower, opts, false)
+}
+
+/// Paint a flower and keep every dab it lays, in order: its coat.
+pub fn flower_to_coat(flower: &Flower, opts: &RenderOpts) -> Result<Coat> {
+    let canvas = paint(flower, opts, true)?;
+    Ok(Coat {
+        width: canvas.width,
+        height: canvas.height,
+        supersample: opts.supersample as usize,
+        background: flower.background,
+        seed: flower.seed,
+        dabs: canvas.laid.unwrap_or_default(),
+    })
+}
+
+/// Lay a coat's dabs again: the same canvas, bit for bit, as the render that made the coat.
+pub fn coat_to_canvas(coat: &Coat) -> Result<Canvas> {
+    render::coat_to_canvas(coat).map_err(Error)
+}
+
+fn paint(flower: &Flower, opts: &RenderOpts, record: bool) -> Result<Canvas> {
     if !(opts.scale.is_finite() && opts.scale > 0.0) {
         return Err(Error(format!(
             "scale must be a positive number, got {}",
@@ -73,7 +93,7 @@ pub fn render(flower: &Flower, opts: &RenderOpts) -> Result<Canvas> {
     let (w, h) = (w.saturating_mul(ss as usize), h.saturating_mul(ss as usize));
     let mut canvas = Canvas::new(w, h, flower.background, flower.seed).map_err(Error)?;
     let scale = opts.scale * ss as f64;
-    if opts.record {
+    if record {
         canvas.laid = Some(Vec::new());
     }
     let (fw, fh) = (flower.width, flower.height);
