@@ -1,0 +1,14 @@
+[build-system]
+requires = ["maturin>=1.5,<2"]
+build-backend = "maturin"
+
+[project]
+name = "paintcode-core"
+description = "The Rust core of paint-code, as a Python module (paintcode_core)."
+requires-python = ">=3.10"
+license = "BSD-3-Clause"
+dynamic = ["version"]
+
+[tool.maturin]
+module-name = "paintcode_core"
+features = ["pyo3/extension-module"]

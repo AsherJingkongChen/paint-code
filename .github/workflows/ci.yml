@@ -1,0 +1,27 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Rust tests (the fast path must be bit-identical to the reference path)
+        run: cargo test --release --workspace --exclude paintcode-py
+      - name: Python reference, and the core built as a Python module
+        run: |
+          pip install -e '.[dev]'
+          pip install ./crates/python
+      - name: Python tests (the core within 1e-5 of the reference)
+        run: python -m pytest -q
