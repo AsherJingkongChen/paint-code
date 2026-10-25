@@ -10,11 +10,11 @@
 //! Every pixel sees the same arithmetic in the same order as a one-dab-at-a-time engine (the
 //! `Spans::Square` reference path), so splitting the work does not change a single bit.
 
-mod canvas;
 mod coat;
 mod grain;
 mod image;
+mod wet;
 
-pub use canvas::{Canvas, Dab, Footprint, MAX_PIXELS, Pickup, Source, Spans};
 pub use coat::{Coat, coat_to_canvas};
 pub use image::RgbImage;
+pub use wet::{Canvas, Dab, Footprint, MAX_PIXELS, Pickup, Source, Spans};
