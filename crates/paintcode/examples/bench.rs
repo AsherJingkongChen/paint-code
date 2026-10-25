@@ -1,6 +1,6 @@
-//! cargo run --release --example bench -- SCENE.json [--square] [--threads N] [--scale S] [--out canvas.f32]
+//! cargo run --release --example bench -- FLOWER.json [--square] [--threads N] [--scale S] [--ss N] [--out canvas.f32]
 //!
-//! Renders a scene and prints the wall time. --out writes the float canvas (h, w, 3 little-endian
+//! Renders a flower and prints the wall time. --out writes the float canvas (h, w, 3 little-endian
 //! f32) for comparing renders outside the tests.
 use std::time::Instant;
 
@@ -14,7 +14,7 @@ fn main() {
     };
     let mut opts = paintcode::RenderOpts::default();
     if args.iter().any(|a| a == "--square") {
-        opts.stroke.spans = paintcode::Spans::Square;
+        opts.petal.spans = paintcode::Spans::Square;
     }
     if let Some(s) = flag("--scale") {
         opts.scale = s.parse().unwrap();
@@ -25,9 +25,12 @@ fn main() {
             .build_global()
             .unwrap();
     }
-    let scene = paintcode::Scene::from_json(&std::fs::read_to_string(path).unwrap()).unwrap();
+    if let Some(s) = flag("--ss") {
+        opts.supersample = s.parse().unwrap();
+    }
+    let flower = paintcode::Flower::from_json(&std::fs::read_to_string(path).unwrap()).unwrap();
     let t = Instant::now();
-    let canvas = paintcode::render(&scene, &opts).unwrap();
+    let canvas = paintcode::render(&flower, &opts).unwrap();
     let dt = t.elapsed();
     println!(
         "{path}: {}x{}  {:.0} ms  ({} threads, {:?})",
@@ -35,7 +38,7 @@ fn main() {
         canvas.height,
         dt.as_secs_f64() * 1e3,
         rayon::current_num_threads(),
-        opts.stroke.spans
+        opts.petal.spans
     );
     if let Some(out) = flag("--out") {
         let bytes: Vec<u8> = canvas.img.iter().flat_map(|v| v.to_le_bytes()).collect();

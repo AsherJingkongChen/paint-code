@@ -6,9 +6,9 @@ use std::path::Path;
 
 const ALLOWED: [(&str, &[&str]); 5] = [
     ("math", &[]),
-    ("scene", &["math"]),
+    ("flower", &["math"]),
     ("render", &["math"]),
-    ("stroke", &["math", "scene", "render"]),
+    ("coat", &["math", "flower", "render"]),
     ("io", &["render"]),
 ];
 

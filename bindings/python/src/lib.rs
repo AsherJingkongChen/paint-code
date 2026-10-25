@@ -5,7 +5,7 @@
 //! bytes or a path to a PNG.
 
 use paintcode::render::RgbImage;
-use paintcode::{Error, RenderOpts, Scene, io};
+use paintcode::{Error, Flower, RenderOpts, io};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyString};
@@ -24,11 +24,11 @@ fn scene_text(py: Python<'_>, scene: &Bound<'_, PyAny>) -> PyResult<String> {
         .extract::<String>()
 }
 
-fn parse(py: Python<'_>, scene: &Bound<'_, PyAny>) -> PyResult<(Scene, serde_json::Value)> {
+fn parse(py: Python<'_>, scene: &Bound<'_, PyAny>) -> PyResult<(Flower, serde_json::Value)> {
     let text = scene_text(py, scene)?;
     let value: serde_json::Value = serde_json::from_str(&text)
         .map_err(|e| PyValueError::new_err(format!("scene is not JSON: {e}")))?;
-    let parsed = Scene::from_value(&value).map_err(value_error)?;
+    let parsed = Flower::from_value(&value).map_err(value_error)?;
     Ok((parsed, value))
 }
 
@@ -53,7 +53,7 @@ fn base_image(py: Python<'_>, base: Option<&Bound<'_, PyAny>>) -> PyResult<Optio
 fn opts(scale: f64, supersample: Option<i64>, record: bool) -> RenderOpts {
     RenderOpts {
         scale,
-        supersample,
+        supersample: supersample.unwrap_or(1),
         record,
         ..RenderOpts::default()
     }
@@ -78,7 +78,7 @@ fn render_png<'py>(
     let o = opts(scale, supersample, false);
     let png = py
         .detach(|| {
-            paintcode::render_over(&scene, base.as_ref(), &o)
+            paintcode::render(&scene, &o)
                 .map(|c| paintcode::image_to_png(&c.to_rgb8()))
         })
         .map_err(value_error)?;
@@ -99,10 +99,10 @@ fn render_ply<'py>(
     let (scene, _) = parse(py, scene)?;
     let base = base_image(py, base)?;
     let o = opts(scale, supersample, true);
-    let paper = base.is_none().then_some(scene.canvas.background);
+    let paper = Some(scene.background);
     let ply = py
         .detach(|| {
-            paintcode::render_over(&scene, base.as_ref(), &o).map(|c| {
+            paintcode::render(&scene, &o).map(|c| {
                 let laid = c.laid.as_deref().unwrap_or(&[]);
                 paintcode::laid_to_ply(laid, c.width, c.height, paper)
             })
@@ -168,10 +168,10 @@ fn paintcode_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(scene_to_petal, m)?)?;
     m.add_function(wrap_pyfunction!(petal_to_scene, m)?)?;
     // every preset with its fields, as a scene would write them
-    let presets: serde_json::Map<String, serde_json::Value> = paintcode::scene::PRESET_NAMES
+    let presets: serde_json::Map<String, serde_json::Value> = paintcode::flower::PRESET_NAMES
         .iter()
         .map(|n| {
-            let b = paintcode::scene::preset(n).expect("a listed preset");
+            let b = paintcode::flower::preset(n).expect("a listed preset");
             (n.to_string(), serde_json::Value::Object(b.to_fields()))
         })
         .collect();

@@ -1,15 +1,15 @@
+use crate::flower::{Brush, Color};
 use crate::math::rng;
 use crate::render::{Canvas, Dab, Footprint, Laid, Pickup, Spans};
-use crate::scene::{Brush, Color};
 use rayon::prelude::*;
 
 use super::path::{Sample, samples};
 
-/// Knobs that change how fast a stroke is painted, never what it looks like.
+/// Knobs that change how fast a petal is painted, never what it looks like.
 #[derive(Debug, Clone, Copy)]
 pub struct Options {
     pub spans: Spans,
-    /// Upper bound on kernel values held at once (f64 each); longer strokes go in chunks.
+    /// Upper bound on kernel values held at once (f32 each); longer petals go in chunks.
     pub budget: usize,
 }
 
@@ -89,7 +89,7 @@ fn plan(seed: i64, brush: &Brush, sid: i64, path: &[Sample]) -> Vec<Plan> {
     out
 }
 
-/// What one stroke left behind.
+/// What one petal left behind.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Painted {
     /// Dabs laid out along the path (some may fall off the canvas).
@@ -98,8 +98,8 @@ pub struct Painted {
     pub carried: [f32; 3],
 }
 
-/// Lay one stroke onto the canvas.
-pub fn paint_stroke(
+/// Lay one petal onto the canvas.
+pub fn paint_petal(
     canvas: &mut Canvas,
     brush: &Brush,
     color: &Color,
@@ -107,8 +107,8 @@ pub fn paint_stroke(
     smooth: bool,
     opts: Options,
 ) -> Painted {
-    let sid = canvas.strokes;
-    canvas.strokes += 1;
+    let sid = canvas.petals;
+    canvas.petals += 1;
     let path = samples(points, brush, smooth);
     let plans = plan(canvas.seed, brush, sid, &path);
     if plans.is_empty() {
@@ -147,7 +147,7 @@ pub fn paint_stroke(
     }
     chunks.push(start..plans.len());
 
-    // Pickup reads the canvas as it was when the stroke began. With one chunk nothing has been
+    // Pickup reads the canvas as it was when the petal began. With one chunk nothing has been
     // composited yet, so the live canvas is that state; with more, keep a snapshot of it.
     let snapshot = (pickup && chunks.len() > 1).then(|| {
         let b = plans.iter().filter_map(|p| canvas.bounds(&p.dab));

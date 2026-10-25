@@ -231,8 +231,8 @@ impl Brush {
         Ok(b)
     }
 
-    /// Every field by its scene name, the inverse of [`Brush::with_fields`]: what a preset is,
-    /// written the way a scene would write it (`angle` and `half_life` may be null).
+    /// Every field by its name in a flower, the inverse of [`Brush::with_fields`]: what a preset
+    /// is, written the way a flower would write it (`angle` and `half_life` may be null).
     pub fn to_fields(&self) -> Map<String, Value> {
         let opt = |v: Option<f64>| v.map_or(Value::Null, Value::from);
         let values = [

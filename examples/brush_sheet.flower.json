@@ -1,11 +1,9 @@
 {
- "canvas": {
-  "width": 720,
-  "height": 670,
-  "background": "#f4efe6",
-  "seed": 2
- },
- "strokes": [
+ "width": 720,
+ "height": 670,
+ "background": "#f4efe6",
+ "seed": 2,
+ "petals": [
   {
    "brush": "flat",
    "color": "#264653",

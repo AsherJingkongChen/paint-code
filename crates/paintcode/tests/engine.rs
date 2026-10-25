@@ -1,36 +1,35 @@
 //! What the engine promises, one behaviour per test (ported from the numpy engine's
 //! tests/test_engine.py when that engine retired).
 
+use paintcode::coat::{Options, paint_petal, samples};
+use paintcode::flower::{Brush, Color, preset};
 use paintcode::render::{Canvas, Dab, Spans};
-use paintcode::scene::{Brush, Color, preset};
-use paintcode::stroke::{Options, paint_stroke, samples};
-use paintcode::{RenderOpts, RgbImage, Scene, render, render_over};
+use paintcode::{Flower, RenderOpts, render};
 use serde_json::{Value, json};
 
-fn scene(v: Value) -> Scene {
-    Scene::from_value(&v).unwrap()
+fn flower(v: Value) -> Flower {
+    Flower::from_value(&v).unwrap()
 }
 
 fn small(seed: i64) -> Value {
-    json!({"canvas": {"width": 160, "height": 80, "seed": seed},
-           "strokes": [{"brush": "filbert", "color": "#c8782a",
+    json!({"width": 160, "height": 80, "seed": seed, "petals": [{"brush": "filbert", "color": "#c8782a",
                         "points": [[10, 40, 0.2], [60, 20, 1.0], [110, 60, 0.7], [150, 40, 0.1]]}]})
 }
 
 fn paint(v: Value, opts: RenderOpts) -> Canvas {
-    render(&scene(v), &opts).unwrap()
+    render(&flower(v), &opts).unwrap()
 }
 
 fn rgb(hex: &str) -> [f32; 3] {
-    paintcode::scene::parse_color(&json!(hex)).unwrap()
+    paintcode::flower::parse_color(&json!(hex)).unwrap()
 }
 
 fn row(points: &[[f64; 2]]) -> Vec<[f64; 4]> {
     points.iter().map(|p| [p[0], p[1], 1.0, 0.0]).collect()
 }
 
-fn stroke(c: &mut Canvas, b: &Brush, color: Color, pts: &[[f64; 4]]) -> paintcode::Painted {
-    paint_stroke(c, b, &color, pts, true, Options::default())
+fn petal(c: &mut Canvas, b: &Brush, color: Color, pts: &[[f64; 4]]) -> paintcode::Painted {
+    paint_petal(c, b, &color, pts, true, Options::default())
 }
 
 fn blank(w: usize, h: usize, bg: &str) -> Canvas {
@@ -38,7 +37,7 @@ fn blank(w: usize, h: usize, bg: &str) -> Canvas {
 }
 
 #[test]
-fn same_scene_same_pixels() {
+fn same_flower_same_pixels() {
     let o = RenderOpts::default();
     assert!(paint(small(3), o).img == paint(small(3), o).img);
 }
@@ -50,7 +49,7 @@ fn seed_changes_jitter() {
 }
 
 #[test]
-fn duplicate_points_do_not_change_the_stroke() {
+fn duplicate_points_do_not_change_the_petal() {
     let b = preset("ink").unwrap();
     let pts = row(&[[10., 40.], [60., 40.], [110., 40.], [150., 40.]]);
     let dup = row(&[
@@ -63,8 +62,8 @@ fn duplicate_points_do_not_change_the_stroke() {
         [150., 40.],
     ]);
     let (mut c1, mut c2) = (blank(160, 80, "#ffffff"), blank(160, 80, "#ffffff"));
-    stroke(&mut c1, &b, Color::Rgb([0.0; 3]), &pts);
-    stroke(&mut c2, &b, Color::Rgb([0.0; 3]), &dup);
+    petal(&mut c1, &b, Color::Rgb([0.0; 3]), &pts);
+    petal(&mut c2, &b, Color::Rgb([0.0; 3]), &dup);
     let gap = c1
         .img
         .iter()
@@ -104,8 +103,7 @@ fn pressure_grows_radius_and_flow() {
 
 #[test]
 fn a_single_point_is_one_dab() {
-    let v = json!({"canvas": {"width": 40, "height": 40},
-                   "strokes": [{"brush": "round", "color": "#f00", "points": [[20, 20, 0.8]]}]});
+    let v = json!({"width": 40, "height": 40, "petals": [{"brush": "round", "color": "#f00", "points": [[20, 20, 0.8]]}]});
     let c = paint(
         v,
         RenderOpts {
@@ -135,7 +133,7 @@ fn pickup_does_not_depend_on_dab_spacing() {
             spacing,
             ..Brush::default()
         };
-        stroke(
+        petal(
             &mut c,
             &b,
             Color::Rgb(rgb("#ff0000")),
@@ -192,7 +190,7 @@ fn a_dry_background_is_not_picked_up() {
         pickup: 0.5,
         ..Brush::default()
     };
-    let carried = stroke(
+    let carried = petal(
         &mut c,
         &b,
         Color::Rgb(rgb("#2b2d42")),
@@ -212,7 +210,7 @@ fn a_smudge_starts_with_the_colour_under_it() {
             c.wet[y * 100 + x] = 1.0;
         }
     }
-    stroke(
+    petal(
         &mut c,
         &preset("blender").unwrap(),
         Color::Smudge,
@@ -235,7 +233,7 @@ fn hardness_sharpens_the_edge() {
             hardness: h,
             ..Brush::default()
         };
-        stroke(
+        petal(
             &mut c,
             &b,
             Color::Rgb([1.0; 3]),
@@ -260,7 +258,7 @@ fn the_same_size_looks_the_same_at_any_hardness() {
                 hardness: h,
                 ..Brush::default()
             };
-            stroke(
+            petal(
                 &mut c,
                 &b,
                 Color::Rgb([1.0; 3]),
@@ -281,7 +279,7 @@ fn supersampling_keeps_the_same_painting() {
     let b = paint(
         small(3),
         RenderOpts {
-            supersample: Some(2),
+            supersample: 2,
             ..RenderOpts::default()
         },
     );
@@ -304,7 +302,7 @@ fn editing_a_stroke_leaves_the_others_jitter_alone() {
         json!({"brush": "filbert", "color": "#c8782a", "points": [[10, 20], [80, 20], [150, 30]]});
     let mut tails = Vec::new();
     for first in [short, long] {
-        let v = json!({"canvas": {"width": 160, "height": 80, "seed": 9}, "strokes": [first, second.clone()]});
+        let v = json!({"width": 160, "height": 80, "seed": 9, "petals": [first, second.clone()]});
         let laid = paint(
             v,
             RenderOpts {
@@ -423,8 +421,7 @@ fn render_splats(ply: &[u8], background: [f32; 3]) -> (usize, usize, Vec<f32>) {
 
 #[test]
 fn a_soft_painting_round_trips_through_the_ply() {
-    let v = json!({"canvas": {"width": 120, "height": 90, "background": "#203040", "seed": 5},
-        "strokes": [
+    let v = json!({"width": 120, "height": 90, "background": "#203040", "seed": 5, "petals": [
             {"brush": "round", "hardness": 0, "color": "#e0a040", "points": [[10, 20, 0.2], [60, 70, 1], [110, 30, 0.4]]},
             {"brush": "filbert", "hardness": 0, "grain": 0, "color": "#40a0e0", "points": [[10, 80], [110, 10]]},
             {"brush": "ink", "hardness": 0, "color": "#ffffff", "points": [[20, 45, 0.3], [100, 50, 1]]},
@@ -451,7 +448,7 @@ fn a_soft_painting_round_trips_through_the_ply() {
 // ------------------------------------------------------------ mistakes are errors, not crashes
 
 fn error(v: Value, opts: RenderOpts) -> String {
-    match Scene::from_value(&v) {
+    match Flower::from_value(&v) {
         Err(e) => e.0,
         Ok(s) => render(&s, &opts).unwrap_err().0,
     }
@@ -460,14 +457,14 @@ fn error(v: Value, opts: RenderOpts) -> String {
 #[test]
 fn a_canvas_too_large_is_an_error_not_an_abort() {
     let e = error(
-        json!({"canvas": {"width": 100000, "height": 100000}, "strokes": []}),
+        json!({"width": 100000, "height": 100000, "petals": []}),
         RenderOpts::default(),
     );
     assert!(e.contains("too large"), "{e}");
     let e = error(
-        json!({"canvas": {"width": 9000, "height": 9000}, "strokes": []}),
+        json!({"width": 9000, "height": 9000, "petals": []}),
         RenderOpts {
-            supersample: Some(4),
+            supersample: 4,
             ..RenderOpts::default()
         },
     );
@@ -476,17 +473,15 @@ fn a_canvas_too_large_is_an_error_not_an_abort() {
 
 #[test]
 fn a_point_far_off_the_canvas_is_an_error() {
-    let v = json!({"canvas": {"width": 100, "height": 100},
-                   "strokes": [{"brush": "ink", "points": [[10, 10], [1e8, 10]]}]});
+    let v = json!({"width": 100, "height": 100, "petals": [{"brush": "ink", "points": [[10, 10], [1e8, 10]]}]});
     let e = error(v, RenderOpts::default());
     assert!(
-        e.starts_with("stroke 0:") && e.contains("too far outside"),
+        e.starts_with("petal 0:") && e.contains("too far outside"),
         "{e}"
     );
-    // a stroke that enters from just off the canvas is fine
-    let ok = json!({"canvas": {"width": 100, "height": 100},
-                    "strokes": [{"brush": "ink", "points": [[-300, 10], [50, 50]]}]});
-    assert!(Scene::from_value(&ok).is_ok());
+    // a petal that enters from just off the canvas is fine
+    let ok = json!({"width": 100, "height": 100, "petals": [{"brush": "ink", "points": [[-300, 10], [50, 50]]}]});
+    assert!(Flower::from_value(&ok).is_ok());
 }
 
 #[test]
@@ -495,39 +490,36 @@ fn canvas_numbers_must_be_whole() {
         ("width", json!(200.7)),
         ("height", json!(0)),
         ("seed", json!(1.5)),
-        ("supersample", json!(0)),
     ] {
-        let mut s = json!({"canvas": {"width": 100, "height": 100}, "strokes": []});
-        s["canvas"][k] = v;
+        let mut s = json!({"width": 100, "height": 100, "petals": []});
+        s[k] = v;
         let e = error(s, RenderOpts::default());
-        assert!(e.contains(&format!("canvas.{k}")), "{e}");
+        assert!(e.starts_with(k), "{e}");
     }
-    assert!(Scene::from_value(&json!({"canvas": {"width": 100.0, "height": 50}})).is_ok());
+    assert!(Flower::from_value(&json!({"width": 100.0, "height": 50})).is_ok());
+    let e = render(
+        &flower(json!({"petals": []})),
+        &RenderOpts {
+            supersample: 0,
+            ..RenderOpts::default()
+        },
+    );
+    assert!(e.unwrap_err().0.contains("supersample"));
 }
 
 #[test]
-fn a_base_image_is_painted_at_its_own_size() {
-    let base = RgbImage {
-        width: 30,
-        height: 20,
-        data: vec![128; 30 * 20 * 3],
-    };
-    let s = scene(
-        json!({"canvas": {"width": 100, "height": 100, "supersample": 2},
-                         "strokes": [{"brush": "round", "points": [[5, 5], [25, 15]]}]}),
-    );
-    let c = render_over(&s, Some(&base), &RenderOpts::default()).unwrap();
-    assert_eq!((c.width, c.height), (30, 20));
-    let e = render_over(
-        &s,
-        Some(&base),
-        &RenderOpts {
-            scale: 2.0,
-            ..RenderOpts::default()
-        },
-    )
-    .unwrap_err();
-    assert!(e.0.contains("base image"), "{}", e.0);
+fn the_old_names_are_explained() {
+    let e = |v: Value| Flower::from_value(&v).unwrap_err().0;
+    assert!(e(json!({"canvas": {"width": 10}})).contains("top of the flower"));
+    assert!(e(json!({"strokes": []})).contains("petals"));
+    assert!(e(json!({"colour": "#fff"})).contains("unknown key"));
+}
+
+#[test]
+fn far_points_are_measured_against_the_flower() {
+    let v = json!({"width": 10, "height": 10, "petals": [{"brush": "round", "points": [[20, 20], [300, 200]]}]});
+    let e = render(&flower(v), &RenderOpts::default()).unwrap_err().0;
+    assert!(e.contains("too far outside the 10x10 canvas"), "{e}");
 }
 
 #[test]
@@ -546,50 +538,16 @@ fn a_bad_scale_is_an_error() {
 
 #[test]
 fn a_brush_larger_than_the_canvas_still_paints() {
-    let v = json!({"canvas": {"width": 50, "height": 50},
-                   "strokes": [{"brush": "airbrush", "size": 1e9, "points": [[25, 25], [30, 30]]}]});
+    let v = json!({"width": 50, "height": 50, "petals": [{"brush": "airbrush", "size": 1e9, "points": [[25, 25], [30, 30]]}]});
     let c = paint(v, RenderOpts::default());
     assert_eq!(c.img.len(), 50 * 50 * 3);
-}
-
-#[test]
-fn a_base_image_sets_the_canvas_the_points_are_checked_against() {
-    // the scene declares a tiny canvas, but the base image is the canvas: [300, 200] is on it
-    let base = RgbImage {
-        width: 400,
-        height: 300,
-        data: vec![90; 400 * 300 * 3],
-    };
-    let s = scene(json!({"canvas": {"width": 10, "height": 10},
-                         "strokes": [{"brush": "round", "points": [[20, 20], [300, 200]]}]}));
-    assert!(render_over(&s, Some(&base), &RenderOpts::default()).is_ok());
-    // and without the base the same point is far off the 10x10 canvas
-    let e = render(&s, &RenderOpts::default()).unwrap_err().0;
-    assert!(e.contains("too far outside the 10x10 canvas"), "{e}");
-}
-
-#[test]
-fn an_override_replaces_a_bad_canvas_supersample() {
-    let s = scene(json!({"canvas": {"width": 20, "height": 20, "supersample": 0}, "strokes": []}));
-    assert!(
-        render(
-            &s,
-            &RenderOpts {
-                supersample: Some(2),
-                ..RenderOpts::default()
-            }
-        )
-        .is_ok()
-    );
-    let e = render(&s, &RenderOpts::default()).unwrap_err().0;
-    assert!(e.contains("canvas.supersample"), "{e}");
 }
 
 #[test]
 fn a_seed_may_use_all_64_bits() {
     let at = |seed: Value| {
         let mut v = small(0);
-        v["canvas"]["seed"] = seed;
+        v["seed"] = seed;
         paint(v, RenderOpts::default()).img
     };
     // 2^63 and -2^63 are the same 64 bits, so the same jitter
@@ -598,8 +556,7 @@ fn a_seed_may_use_all_64_bits() {
 
 #[test]
 fn a_huge_grain_scale_paints_without_a_huge_paper() {
-    let v = json!({"canvas": {"width": 50, "height": 50},
-                   "strokes": [{"brush": "pencil", "grain_scale": 1e7, "points": [[5, 5], [40, 40]]}]});
+    let v = json!({"width": 50, "height": 50, "petals": [{"brush": "pencil", "grain_scale": 1e7, "points": [[5, 5], [40, 40]]}]});
     let c = paint(v, RenderOpts::default());
     assert_eq!(c.img.len(), 50 * 50 * 3);
 }

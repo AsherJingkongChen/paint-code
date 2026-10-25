@@ -1,10 +1,8 @@
 {
- "canvas": {
-  "width": 160,
-  "height": 90,
-  "background": "#203040",
-  "seed": 5
- },
+ "width": 160,
+ "height": 90,
+ "background": "#203040",
+ "seed": 5,
  "brushes": {
   "wet": {
    "preset": "flat",
@@ -12,7 +10,7 @@
    "size": 9
   }
  },
- "strokes": [
+ "petals": [
   {
    "brush": "round",
    "color": "#e0a040",

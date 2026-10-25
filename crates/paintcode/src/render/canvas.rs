@@ -102,8 +102,8 @@ pub struct Canvas {
     pub img: Vec<f32>,
     /// How much paint is still wet, `height * width`.
     pub wet: Vec<f32>,
-    /// Strokes painted so far; a stroke's index keys its jitter.
-    pub strokes: i64,
+    /// Petals painted so far; a petal's index keys its jitter.
+    pub petals: i64,
     /// Every dab laid so far, in order, when recording is on (for the PLY export).
     pub laid: Option<Vec<Laid>>,
     grain: HashMap<u64, Vec<f32>>,
@@ -115,7 +115,7 @@ impl std::fmt::Debug for Canvas {
             .field("width", &self.width)
             .field("height", &self.height)
             .field("seed", &self.seed)
-            .field("strokes", &self.strokes)
+            .field("petals", &self.petals)
             .field("laid", &self.laid.as_ref().map(Vec::len))
             .finish_non_exhaustive()
     }
@@ -151,7 +151,7 @@ impl Canvas {
             seed,
             img,
             wet: buffer(pixels, "wetness map")?,
-            strokes: 0,
+            petals: 0,
             laid: None,
             grain: HashMap::new(),
         })

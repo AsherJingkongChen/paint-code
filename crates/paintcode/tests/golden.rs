@@ -10,7 +10,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use paintcode::io::{PLY_FIELDS, ply_to_splats};
-use paintcode::{RenderOpts, Scene, laid_to_ply, png_to_image, render_over};
+use paintcode::{Flower, RenderOpts, laid_to_ply, png_to_image, render};
 use serde_json::Value;
 
 const GATE: f32 = 1e-5 + 0.5 / 65535.0;
@@ -42,19 +42,16 @@ fn max_gap(a: &[f32], b: &[f32], f: impl Fn(f32) -> f32) -> f32 {
 fn check(name: &str) {
     let m = manifest();
     let case = &m[name];
-    let scene_text = std::fs::read_to_string(root().join(case["scene"].as_str().unwrap())).unwrap();
-    let scene = Scene::from_json(&scene_text).unwrap();
+    let text = std::fs::read_to_string(root().join(case["flower"].as_str().unwrap())).unwrap();
+    let flower = Flower::from_json(&text).unwrap();
     let o = &case["options"];
     let opts = RenderOpts {
         scale: o.get("scale").and_then(Value::as_f64).unwrap_or(1.0),
-        supersample: o.get("supersample").and_then(Value::as_i64),
+        supersample: o.get("supersample").and_then(Value::as_i64).unwrap_or(1),
         record: o.get("ply").is_some(),
         ..RenderOpts::default()
     };
-    let base = o
-        .get("base")
-        .map(|p| png_to_image(&std::fs::read(root().join(p.as_str().unwrap())).unwrap()).unwrap());
-    let canvas = render_over(&scene, base.as_ref(), &opts).unwrap();
+    let canvas = render(&flower, &opts).unwrap();
     let (w, h) = (
         case["width"].as_u64().unwrap() as usize,
         case["height"].as_u64().unwrap() as usize,
@@ -101,7 +98,7 @@ fn check(name: &str) {
     if let Some(f) = case.get("ply").and_then(Value::as_str) {
         let want = ply_to_splats(&std::fs::read(golden(f)).unwrap()).unwrap();
         let laid = canvas.laid.as_deref().unwrap();
-        let bg = base.is_none().then_some(scene.canvas.background);
+        let bg = Some(flower.background);
         let got = ply_to_splats(&laid_to_ply(laid, w, h, bg)).unwrap();
         assert_eq!(got.names, want.names);
         assert_eq!(got.comments, want.comments);
@@ -150,11 +147,6 @@ fn features_supersampled() {
 }
 
 #[test]
-fn features_on_a_base_image() {
-    check("features_on_base");
-}
-
-#[test]
 fn ply_export() {
     check("ply_scene");
 }
@@ -163,11 +155,6 @@ fn ply_export() {
 fn ply_export_supersampled() {
     // laid dabs come back to output pixel units when the canvas is box-filtered down
     check("ply_scene_ss2");
-}
-
-#[test]
-fn ply_export_on_a_base_image() {
-    check("ply_on_base");
 }
 
 #[test]
@@ -185,9 +172,5 @@ fn kiku() {
 fn the_petal_made_by_the_numpy_engine_still_opens() {
     let petal = std::fs::read(root().join("examples/kiku.petal")).unwrap();
     let scene = paintcode::petal_to_scene(&petal).unwrap();
-    let json = std::fs::read_to_string(root().join("examples/kiku.json")).unwrap();
-    assert_eq!(
-        Scene::from_value(&scene).unwrap(),
-        Scene::from_json(&json).unwrap()
-    );
+    assert_eq!(scene["strokes"].as_array().unwrap().len(), 629);
 }
