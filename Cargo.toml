@@ -6,7 +6,7 @@ members = ["crates/paintcode", "bindings/python"]
 version = "0.4.0"
 edition = "2021"
 license = "BSD-3-Clause"
-repository = "https://github.com/AsherJingkongChen/paint-code"
+repository = "https://github.com/AsherJingkongChen/paintcode"
 
 [workspace.dependencies]
 paintcode = { path = "crates/paintcode" }

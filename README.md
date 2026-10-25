@@ -6,7 +6,7 @@ It was written so a language model can paint with its own strokes: the model wri
 
 ![A yellow chrysanthemum at dusk](examples/kiku.png)
 
-`examples/kiku.petal` holds its 629 strokes in 23 KB. Rendered, they become 52,731 dabs, which take 3.5 MB as a splat file. The strokes are the part that has to fit in a context window; the dabs never do.
+`examples/kiku.petal` holds its 629 strokes in 23 KB. Rendered, they become 87,114 dabs, which take 5.6 MB as a splat file. The strokes are the part that has to fit in a context window; the dabs never do.
 
 ## Install
 

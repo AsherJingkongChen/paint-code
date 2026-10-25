@@ -1,6 +1,6 @@
 [package]
 name = "paintcode-py"
-description = "Python binding of the paint-code core (module paintcode_core)."
+description = "Python binding of the paintcode core (module paintcode_core)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
