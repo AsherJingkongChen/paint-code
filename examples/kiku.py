@@ -1,10 +1,9 @@
 """A yellow chrysanthemum at dusk. Painted by Kiku, stroke by stroke, from code."""
-import json
 import math
 import random
 from pathlib import Path
 
-from paintcode import render_png
+from paintcode import flower_to_canvas, save_canvas, save_flower
 
 W, H = 640, 640
 rnd = random.Random(1024)
@@ -102,8 +101,8 @@ for i in range(30):
     x, y = CX + r * math.cos(a), CY + r * math.sin(a) * TILT
     stroke("round", jit([214, 150, 54], 14), [[x, y, rnd.uniform(0.4, 0.9)]], size=2)
 
-scene = {"canvas": {"width": W, "height": H, "background": "#2a2f4a", "seed": 24, "supersample": 2}, "strokes": S}
+flower = {"width": W, "height": H, "background": "#2a2f4a", "seed": 24, "petals": S}
 out = Path(__file__).with_suffix("")
-out.with_suffix(".json").write_text(json.dumps(scene))
-out.with_suffix(".png").write_bytes(render_png(scene))
-print(len(S), "strokes")
+save_flower(flower=flower, path=out.with_suffix(".flower.json"))
+save_canvas(canvas=flower_to_canvas(flower=flower, supersample=2), path=out.with_suffix(".png"))
+print(len(S), "petals")

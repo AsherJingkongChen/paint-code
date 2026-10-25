@@ -16,153 +16,188 @@ import paintcode
 
 ROOT = Path(__file__).resolve().parents[1]
 GOLDEN = ROOT / "tests" / "golden"
-SCENE = json.loads((GOLDEN / "features.json").read_text())
+FLOWER = json.loads((GOLDEN / "features.flower.json").read_text())
 
 
 def pixels(png: bytes) -> np.ndarray:
     return np.asarray(Image.open(io.BytesIO(png)).convert("RGB"), np.int16)
 
 
-def test_the_png_is_the_golden_painting():
-    got = pixels(paintcode.render_png(SCENE))
+def test_the_canvas_is_the_golden_painting():
+    got = pixels(paintcode.flower_to_canvas(flower=FLOWER).png())
     want = pixels((GOLDEN / "features.png").read_bytes())
     assert np.abs(got - want).max() <= 1
 
 
-def test_a_scene_may_be_json_text():
-    assert paintcode.render_png(json.dumps(SCENE)) == paintcode.render_png(SCENE)
+def test_a_path_may_be_a_str_or_a_pathlike(tmp_path):
+    path = GOLDEN / "features.flower.json"
+    assert paintcode.load_flower(path) == paintcode.load_flower(str(path)) == FLOWER
 
 
-def test_a_base_image_from_bytes_or_a_path():
-    base = GOLDEN / "base.png"
-    by_path = paintcode.render_png(SCENE, base=base)
-    by_str = paintcode.render_png(SCENE, base=str(base))
-    by_bytes = paintcode.render_png(SCENE, base=base.read_bytes())
-    assert by_path == by_str == by_bytes
-    want = pixels((GOLDEN / "features_on_base.png").read_bytes())
-    assert np.abs(pixels(by_path) - want).max() <= 1
+def test_a_flower_rides_on_its_canvas(tmp_path):
+    canvas = paintcode.flower_to_canvas(flower=FLOWER)
+    on = paintcode.flower_on_canvas(flower=FLOWER, canvas=canvas)
+    path = tmp_path / "features.flower.png"
+    paintcode.save_canvas(canvas=on, path=path)
+    back = paintcode.load_flower(path)
+    assert back == FLOWER and list(back) == list(FLOWER)
+    assert paintcode.flower_off_canvas(on) == FLOWER
+    # the loader of a canvas takes only the pixels, and any PNG reader sees them
+    assert paintcode.load_canvas(path).pixels() == canvas.pixels()
+    assert (pixels(path.read_bytes()) == pixels(canvas.png())).all()
+    with pytest.raises(ValueError, match="no flower on this canvas"):
+        paintcode.flower_off_canvas(paintcode.load_canvas(path))
 
 
-def test_a_petal_round_trip_keeps_the_scene_and_its_key_order():
-    petal = paintcode.scene_to_petal(SCENE)
-    back = paintcode.petal_to_scene(petal)
-    assert back == SCENE and list(back) == list(SCENE)
-    assert paintcode.scene_to_petal(SCENE) == petal   # deterministic
-    with __import__("zipfile").ZipFile(io.BytesIO(petal)) as z:
-        assert set(z.namelist()) == {"meta.json", "scene.json", "preview.png"}
-    assert "preview.png" not in __import__("zipfile").ZipFile(
-        io.BytesIO(paintcode.scene_to_petal(SCENE, preview=False))).namelist()
+def test_a_flower_file_round_trip_keeps_its_key_order(tmp_path):
+    path = tmp_path / "features.flower.json"
+    paintcode.save_flower(flower=FLOWER, path=path)
+    back = paintcode.load_flower(path)
+    assert back == FLOWER and list(back) == list(FLOWER)
+    assert path.read_text().count("\n") == len(FLOWER["petals"]) + 2   # one petal per line
 
 
-def test_the_example_petal_opens():
-    scene = paintcode.petal_to_scene((ROOT / "examples" / "kiku.petal").read_bytes())
-    assert len(scene["strokes"]) == 629
+def test_the_example_flowers_open():
+    kiku = paintcode.load_flower(ROOT / "examples" / "kiku.flower.json")
+    assert len(kiku["petals"]) == 629
 
 
-def test_the_ply_has_one_splat_per_dab():
-    ply = paintcode.render_ply(SCENE)
+def test_the_coat_file_has_one_splat_per_dab_and_reads_back(tmp_path):
+    coat = paintcode.flower_to_coat(flower=FLOWER, supersample=2)
+    path = tmp_path / "features.coat.ply"
+    paintcode.save_coat(coat=coat, path=path)
+    ply = path.read_bytes()
     head = ply[: ply.index(b"end_header")].decode()
     assert "comment canvas 160 90" in head
     n = int(head.split("element vertex ")[1].split()[0])
     body = len(ply) - (ply.index(b"end_header") + len(b"end_header\n"))
-    assert n > 100 and body == n * 17 * 4
+    # 17 floats in the 3DGS layout, then the dab exactly: 9 doubles and its colour
+    assert n == len(coat) > 100 and body == n * (17 * 4 + 9 * 8 + 3 * 4)
+    again = paintcode.coat_to_canvas(paintcode.load_coat(path))
+    assert again.pixels() == paintcode.flower_to_canvas(flower=FLOWER, supersample=2).pixels()
 
 
-def test_mistakes_are_value_errors_that_name_the_stroke():
-    bad = dict(SCENE, strokes=[{"brush": "ink", "sise": 3, "points": [[1, 1]]}])
-    with pytest.raises(ValueError, match="stroke 0.*sise"):
-        paintcode.render_png(bad)
-    with pytest.raises(ValueError, match="stroke 0: stroke has no points"):
-        paintcode.render_png(dict(SCENE, strokes=[{"brush": "ink"}]))
-    with pytest.raises(ValueError, match="canvas.width"):
-        paintcode.render_png({"canvas": {"width": 200.7, "height": 90}})
-    with pytest.raises(ValueError, match="base image"):
-        paintcode.render_png(SCENE, base=GOLDEN / "base.png", scale=2)
-    with pytest.raises(ValueError, match="not JSON"):
-        paintcode.render_png("{not json")
+def test_mistakes_are_value_errors_that_name_the_petal_or_the_file(tmp_path):
+    bad = dict(FLOWER, petals=[{"brush": "ink", "sise": 3, "points": [[1, 1]]}])
+    with pytest.raises(ValueError, match="petal 0.*sise"):
+        paintcode.flower_to_canvas(flower=bad)
+    with pytest.raises(ValueError, match="petal 0: petal has no points"):
+        paintcode.save_flower(flower=dict(FLOWER, petals=[{"brush": "ink"}]), path=tmp_path / "x")
+    with pytest.raises(ValueError, match="width must be a whole number"):
+        paintcode.flower_to_canvas(flower={"width": 200.7, "height": 90})
+    (tmp_path / "bad.flower.json").write_text("{not json")
+    with pytest.raises(ValueError, match="bad.flower.json: flower is not JSON"):
+        paintcode.load_flower(tmp_path / "bad.flower.json")
+    paintcode.save_canvas(canvas=paintcode.flower_to_canvas(flower=FLOWER), path=tmp_path / "bare.png")
+    with pytest.raises(ValueError, match="bare.png: no flower on this PNG"):
+        paintcode.load_flower(tmp_path / "bare.png")
+    with pytest.raises(ValueError, match="not a PLY"):
+        paintcode.load_coat(tmp_path / "bare.png")
+    with pytest.raises(FileNotFoundError):
+        paintcode.load_canvas(tmp_path / "missing.png")
 
 
 def test_a_huge_canvas_is_an_error_and_python_lives_on():
     # before 0.5 this was an allocation abort that took the interpreter with it
     code = ("import paintcode\n"
             "try:\n"
-            "    paintcode.render_png({'canvas': {'width': 100000, 'height': 100000}})\n"
+            "    paintcode.flower_to_canvas(flower={'width': 100000, 'height': 100000})\n"
             "except ValueError as e:\n"
             "    print('caught', e)\n")
     r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)
     assert r.returncode == 0 and r.stdout.startswith("caught"), r.stderr
 
 
-def test_a_hostile_base_png_is_an_error_and_python_lives_on():
+def test_a_hostile_png_is_an_error_and_python_lives_on(tmp_path):
     # a PNG header that claims 100000 x 100000 pixels; before the fix the allocation aborted
-    code = ("import struct, zlib, paintcode\n"
+    code = ("import struct, sys, zlib, paintcode\n"
             "def chunk(t, d): return struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d))\n"
             "png = (b'\\x89PNG\\r\\n\\x1a\\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', 100000, 100000, 8, 2, 0, 0, 0))\n"
             "       + chunk(b'IDAT', zlib.compress(b'')) + chunk(b'IEND', b''))\n"
+            "open(sys.argv[1], 'wb').write(png)\n"
             "try:\n"
-            "    paintcode.render_png({'canvas': {'width': 10, 'height': 10}}, base=png)\n"
+            "    paintcode.load_canvas(sys.argv[1])\n"
             "except ValueError as e:\n"
             "    print('caught', e)\n")
-    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)
+    r = subprocess.run([sys.executable, "-c", code, str(tmp_path / "huge.png")],
+                       capture_output=True, text=True, timeout=60)
     assert r.returncode == 0 and "too large" in r.stdout, r.stdout + r.stderr
 
 
-def test_a_grey_or_rgba_base_works_like_rgb():
-    rgb = Image.open(GOLDEN / "base.png").convert("RGB")
+def test_a_grey_or_rgba_png_opens_like_rgb(tmp_path):
+    rgb = Image.open(io.BytesIO(paintcode.flower_to_canvas(flower=FLOWER).png())).convert("RGB")
+    want = np.asarray(rgb).tobytes()
     for mode in ("RGBA", "L", "P"):
         im = rgb.convert(mode)
-        buf = io.BytesIO()
-        im.save(buf, "PNG")
-        want = paintcode.render_png(SCENE, base=_png(im.convert("RGB")))
-        assert paintcode.render_png(SCENE, base=buf.getvalue()) == want, mode
+        im.save(tmp_path / f"{mode}.png")
+        got = paintcode.load_canvas(tmp_path / f"{mode}.png").pixels()
+        assert got == np.asarray(im.convert("RGB")).tobytes(), mode
+    assert paintcode.load_canvas(tmp_path / "RGBA.png").pixels() == want
 
 
-def _png(im) -> bytes:
-    buf = io.BytesIO()
-    im.save(buf, "PNG")
-    return buf.getvalue()
-
-
-def test_options_are_keyword_only():
+def test_more_than_one_parameter_means_keywords():
     with pytest.raises(TypeError):
-        paintcode.render_png(SCENE, 2.0)
+        paintcode.flower_to_canvas(FLOWER)
+    with pytest.raises(TypeError):
+        paintcode.flower_to_canvas(flower=FLOWER).peek(1, 2)
+    paintcode.load_flower(GOLDEN / "features.flower.json")    # one parameter: positional is fine
 
 
-def test_the_presets_show_their_fields():
-    assert {"ink", "filbert", "blender"} <= set(paintcode.PRESETS)
-    filbert = paintcode.PRESETS["filbert"]
+def test_a_canvas_can_be_peeked_and_cropped():
+    canvas = paintcode.flower_to_canvas(flower=FLOWER)
+    image = pixels(canvas.png())
+    assert (canvas.width, canvas.height) == (160, 90)
+    assert canvas.peek(x=31, y=7) == tuple(image[7, 31])
+    part = canvas.crop(x=30, y=5, width=50, height=20)
+    assert (part.width, part.height) == (50, 20)
+    assert (pixels(part.png()) == image[5:25, 30:80]).all()
+    for x, y, w, h in [(150, 0, 20, 10), (0, 0, 0, 10)]:
+        with pytest.raises(ValueError, match="does not fit"):
+            canvas.crop(x=x, y=y, width=w, height=h)
+    with pytest.raises(ValueError, match="outside"):
+        canvas.peek(x=160, y=0)
+
+
+def test_the_brushes_show_their_fields():
+    assert {"ink", "filbert", "blender"} <= set(paintcode.BRUSHES)
+    filbert = paintcode.BRUSHES["filbert"]
     assert filbert["size"] == 5.2 and filbert["hardness"] == 0.8 and filbert["angle"] is None
-    # a preset's fields written out in the scene paint the same as naming the preset
-    by_name = dict(SCENE, strokes=[{"brush": "filbert", "color": "#a33", "points": [[10, 10], [150, 80]]}])
-    by_fields = dict(SCENE, strokes=[{"brush": filbert, "color": "#a33", "points": [[10, 10], [150, 80]]}])
-    assert paintcode.render_png(by_name) == paintcode.render_png(by_fields)
-
-
-def test_a_petal_can_reuse_a_render_as_its_preview():
-    png = paintcode.render_png(SCENE)
-    reused = paintcode.scene_to_petal(SCENE, preview=png)
-    assert reused == paintcode.scene_to_petal(SCENE)        # the same preview, one render fewer
-    with pytest.raises(ValueError, match="preview"):
-        paintcode.scene_to_petal(SCENE, preview=b"not a png")
-
-
-def test_a_project_renders_like_its_scene():
-    petal = paintcode.scene_to_petal(SCENE)
-    assert paintcode.render_png(paintcode.petal_to_scene(petal)) == paintcode.render_png(SCENE)
+    # a brush's fields written out in the flower paint the same as naming the brush
+    by_name = dict(FLOWER, petals=[{"brush": "filbert", "color": "#a33", "points": [[10, 10], [150, 80]]}])
+    by_fields = dict(FLOWER, petals=[{"brush": filbert, "color": "#a33", "points": [[10, 10], [150, 80]]}])
+    assert (paintcode.flower_to_canvas(flower=by_name).pixels()
+            == paintcode.flower_to_canvas(flower=by_fields).pixels())
 
 
 def test_the_stub_says_what_the_module_has():
     """_core.pyi is written by hand (pyo3-stub-gen does not support pyo3 0.30 yet), so it is
-    checked here: the same functions, the same parameters, positional or keyword-only alike."""
+    checked here: the same functions and classes, the same parameters, positional or keyword-only
+    alike."""
     from paintcode import _core
     stub = ast.parse(Path(_core.__file__).with_name("_core.pyi").read_text())
     funcs = {n.name: n for n in stub.body if isinstance(n, ast.FunctionDef)}
+    classes = {n.name: n for n in stub.body if isinstance(n, ast.ClassDef)}
     names = {n.target.id for n in stub.body if isinstance(n, ast.AnnAssign)}
     real = {k for k, v in vars(_core).items() if callable(v) and not k.startswith("_")}
-    assert set(funcs) == real
-    assert {"PRESETS", "__version__"} <= names and all(hasattr(_core, n) for n in names - {"Scene", "Base"})
-    for name, node in funcs.items():
-        want = [(a.arg, "POSITIONAL_OR_KEYWORD") for a in node.args.args]
+    assert set(funcs) | set(classes) == real
+    assert {"BRUSHES", "__version__"} <= names and all(hasattr(_core, n) for n in names)
+
+    def same(node, real_fn, is_method):
+        want = [(a.arg, "POSITIONAL_OR_KEYWORD") for a in node.args.args[is_method:]]
         want += [(a.arg, "KEYWORD_ONLY") for a in node.args.kwonlyargs]
-        got = [(p.name, p.kind.name) for p in inspect.signature(getattr(_core, name)).parameters.values()]
-        assert got == want, name
+        params = list(inspect.signature(real_fn).parameters.values())[is_method:]
+        got = [(p.name, p.kind.name) for p in params]
+        assert got == want, node.name
+
+    for name, node in funcs.items():
+        same(node, getattr(_core, name), 0)
+    for name, node in classes.items():
+        cls = getattr(_core, name)
+        for m in node.body:
+            if not isinstance(m, ast.FunctionDef):
+                continue
+            attr = inspect.getattr_static(cls, m.name)
+            if isinstance(attr, property) or type(attr).__name__ == "getset_descriptor":
+                continue
+            if not m.name.startswith("__"):
+                same(m, getattr(cls, m.name), 1)
