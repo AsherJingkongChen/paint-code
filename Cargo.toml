@@ -5,7 +5,7 @@ members = ["crates/paintcode", "bindings/python"]
 [workspace.package]
 version = "0.5.0"
 edition = "2024"
-# the highest rust-version among the dependencies (zip 9); resolver 3 keeps new ones within it
+# the highest any dependency needs (zip 9); CI checks it
 rust-version = "1.88"
 license = "BSD-3-Clause"
 repository = "https://github.com/AsherJingkongChen/paintcode"
@@ -18,13 +18,8 @@ png = "0.18"
 zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
 flate2 = "1"
 
-# Measured on kiku.json (one thread) and a clean build of the Python extension, 2-core VM:
-#   thin LTO, opt 3                    1.49 MB   4.33 s   29.8 s build
-#   + strip                            1.19 MB   4.26 s
-#   fat LTO, opt "s", strip (this)     0.92 MB   4.29 s   28.1 s build
-#   fat LTO, opt "z", strip            0.91 MB   6.76 s
-# Size drops by 38% at the same speed. panic stays "unwind": PyO3 turns a Rust panic into a
-# Python PanicException with catch_unwind, and with "abort" any panic would kill the host process.
+# opt-level "s" renders as fast as 3 and is 38% smaller (measured in the commit that set it).
+# panic must stay "unwind": PyO3 turns panics into Python exceptions; "abort" kills Python.
 [profile.release]
 codegen-units = 1
 lto = "fat"
