@@ -21,7 +21,7 @@ FORMATS = (".png", ".petal", ".ply")
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(prog="paintcode", description="Render a paint-code scene.",
+    ap = argparse.ArgumentParser(prog="paintcode", description="Render a paintcode scene.",
                                  formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
     ap.add_argument("scene", help=".json scene, .petal project, or - for JSON on stdin")
     ap.add_argument("-o", "--out", action="append", required=True, help="output file; repeat for several formats")

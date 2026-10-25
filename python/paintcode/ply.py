@@ -49,7 +49,7 @@ def dabs_to_splats(dabs: list[dict], width: int, height: int) -> np.ndarray:
 def write(path, dabs: list[dict], width: int, height: int, background=None) -> int:
     a = dabs_to_splats(dabs, width, height)
     header = ["ply", "format binary_little_endian 1.0",
-              "comment made with paint-code: one flat Gaussian per brush dab",
+              "comment made with paintcode: one flat Gaussian per brush dab",
               f"comment canvas {width} {height}"]
     if background is not None:
         header.append("comment background " + " ".join(f"{float(c):.6f}" for c in background))

@@ -1,0 +1,16 @@
+[package]
+name = "paintcode-python"
+description = "The paintcode core as the Python extension paintcode._core."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+name = "paintcode_python"
+crate-type = ["cdylib"]
+
+[dependencies]
+paintcode.workspace = true
+pyo3 = { version = "0.30", features = ["abi3-py310"] }

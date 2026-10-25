@@ -4,7 +4,7 @@ import math
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
 from PIL import ImageDraw  # noqa: E402
 
 from paintcode import PRESETS, render  # noqa: E402

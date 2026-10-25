@@ -1,4 +1,4 @@
-# paint-code
+# paintcode
 
 A small dab engine for painting from code. A stroke is a list of control points with pressure and tilt; the engine resamples it along its arc length and lays down a row of **anisotropic 2D Gaussians**. Every mark you see is made of splats.
 
@@ -6,13 +6,13 @@ It was written so a language model can paint with its own strokes: the model wri
 
 ![A yellow chrysanthemum at dusk](examples/kiku.png)
 
-`examples/kiku.petal` holds its 629 strokes in 23 KB. Rendered, they become 52,731 dabs, which take 3.5 MB as a splat file. The strokes are the part that has to fit in a context window; the dabs never do.
+`examples/kiku.petal` holds its 629 strokes in 23 KB. Rendered, they become 87,114 dabs, which take 5.6 MB as a splat file. The strokes are the part that has to fit in a context window; the dabs never do.
 
 ## Install
 
 ```bash
-pip install -e .            # numpy and pillow
-pip install -e '.[dev]'     # plus pytest
+uv sync                     # the package with both engines, and pytest (needs a Rust toolchain)
+pip install .               # or with pip
 ```
 
 ## Render
@@ -31,7 +31,9 @@ python -m paintcode scene.json -o out.png --base old.png            # paint over
 | `.petal` | the project: a ZIP (Deflate, lossless) with `scene.json`, `meta.json` and a small `preview.png`. It stores strokes, never dabs |
 | `.ply` | every dab as a flat 3D Gaussian in the 3D Gaussian Splatting layout, readable by splat viewers |
 
-The same scene and seed always produce the same pixels. To keep working on a painting, append strokes to the scene and render it again rather than painting over the PNG: re-rendering keeps the wet-paint state that `--base` cannot recover.
+The same scene and seed always produce the same pixels. Jitter is counter-based: every random number is a hash of (seed, stroke index, dab index, slot), so editing or lengthening one stroke never moves the jitter of another, and appending strokes leaves the ones before them alone. To keep working on a painting, append strokes to the scene and render it again rather than painting over the PNG: re-rendering keeps the wet-paint state that `--base` cannot recover.
+
+Version 0.4 changed the random numbers (jitter and paper tooth), so a scene from 0.3 renders with slightly different jitter.
 
 ## Scene format
 
@@ -60,7 +62,7 @@ Each dab is
 
 $$\alpha(\mathbf{x}) = \text{flow}\cdot\exp\!\left(-\tfrac12\, q^{\,n}\right),\qquad n = \frac{1}{1-h},\qquad q = \left(\tfrac{u}{\sigma_x}\right)^2 + \left(\tfrac{v}{\sigma_y}\right)^2$$
 
-where $(u, v)$ is the pixel offset rotated into the dab's frame and $h$ is hardness. The profile reaches $e^{-2}$ at $\sigma\, 2^{1/n}$, so the engine sets $\sigma = \text{radius}\cdot 2^{-1/n}$: the visible edge stays at the brush radius whatever the hardness, with $\sigma = r/2$ for a Gaussian and $\sigma = r$ for a hard ellipse. With $h = 0$ it is exactly a 2D Gaussian; as $h \to 1$ it becomes a hard-edged ellipse one sigma across. Sigmas below half a pixel are raised to 0.5 px, dabs are cut off at $q > 9$, and they are composited with plain "over".
+where $(u, v)$ is the pixel offset rotated into the dab's frame and $h$ is hardness. The profile reaches $e^{-2}$ at $\sigma\, 2^{1/n}$, so the engine sets $\sigma = \text{radius}\cdot 2^{-1/n}$: the visible edge stays at the brush radius whatever the hardness, with $\sigma = r/2$ for a Gaussian and $\sigma = r$ for a hard ellipse. With $h = 0$ it is exactly a 2D Gaussian; as $h \to 1$ it becomes a hard-edged ellipse one sigma across. Sigmas below half a pixel are raised to 0.5 px, dabs are cut off at $q > 9$, and they are composited with plain "over". Dab geometry is computed in float64; the per-pixel kernel and the compositing are float32.
 
 ### Sharpness
 
@@ -111,13 +113,45 @@ paint_stroke(c, get_brush("filbert").with_(size=12), [200, 120, 40], [[20, 170, 
 c.save("out.png")
 ```
 
+## Rust core
+
+The same engine in Rust: one library, `crates/paintcode`, with one module per part of the engine. `bindings/python` builds it into this package as `paintcode._core`, so `pip install` gives one package with both engines: `paintcode` (Python, the reference, and the only one with PLY, `.petal` and `--base` for now) and `paintcode.core` (Rust). Inside the library, dependencies point one way, from the leaf up; `tests/layering.rs` fails if a module reaches back down the list.
+
+| module | part | may use | does |
+|---|---|---|---|
+| `math` | leaf | nothing | counter-based RNG, dab profile and geometry |
+| `scene` | bones | math | scene, brush and stroke types, presets, colours |
+| `render` | render | math | dabs to pixels, paper grain, downsampling |
+| `stroke` | flesh | math, scene, render | control points to dabs, carrying paint |
+| `io` | files | render | encoders and decoders, in pairs |
+
+The Python engine stays the reference. The core paints the same float32 arithmetic and is checked against it at 1e-5 on the float canvas; on `kiku.json` the largest difference is 2.4e-7.
+
+A stroke is painted in two parallel phases: every dab's kernel and the wet paint under it are evaluated independently (pickup reads the canvas as it was when the stroke began, as the Python snapshot does), then the dabs are composited in order, one band of rows per thread. The fast path also skips the parts of each dab's square that lie outside its $q \le 9$ ellipse. None of this changes a bit: the tests render with the reference path (whole squares, `powf` everywhere, one thread) and require identical output.
+
+`kiku.json`, 640², supersample 2, on a 2-core VM:
+
+| engine | time |
+|---|---|
+| Python | 52 s |
+| Rust, 1 thread | 7.0 s |
+| Rust, 2 threads | 3.5 s |
+
+```bash
+uv sync                                                                # builds the core into python/paintcode/; rebuilds when any .rs changes
+uv run python -c "import json, paintcode.core as c; open('k.png', 'wb').write(c.render_png(json.load(open('examples/kiku.json')), scale=2))"
+cargo run --release --example bench -- examples/kiku.json            # time a render
+```
+
 ## Tests
 
 ```bash
-python -m pytest
+uv run pytest               # the engine, and the core against it
+uv run pytest --slow        # also kiku.json through both engines (a minute)
+cargo test --release -p paintcode   # the fast path against the reference path, and the module layering
 ```
 
-They cover determinism, duplicate control points, stroke direction at joints, the pressure curves, the Gaussian profile, hardness, supersampling, spacing-independent pickup, dry backgrounds, smudging, and both export round trips.
+They cover determinism, the pinned random numbers, jitter that stays put when another stroke changes, float32 pixel arithmetic, duplicate control points, stroke direction at joints, the pressure curves, the Gaussian profile, hardness, supersampling, spacing-independent pickup, dry backgrounds, smudging, and both export round trips.
 
 ## Credits
 
