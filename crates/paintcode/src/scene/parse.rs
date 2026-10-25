@@ -2,12 +2,12 @@ use std::collections::HashMap;
 
 use serde_json::{Map, Value};
 
-use super::{err, parse_color, Brush, Error, Result};
+use super::{Brush, Error, Result, err, parse_color};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CanvasCfg {
-    pub width: f64,
-    pub height: f64,
+    pub width: usize,
+    pub height: usize,
     pub background: [f32; 3],
     pub seed: i64,
     pub supersample: i64,
@@ -55,23 +55,35 @@ impl Scene {
             .get("canvas")
             .and_then(Value::as_object)
             .unwrap_or(&empty);
-        let num = |k: &str, d: f64| -> Result<f64> {
-            match cfg.get(k) {
-                None => Ok(d),
-                Some(v) => v
-                    .as_f64()
-                    .ok_or_else(|| Error(format!("canvas.{k} must be a number, got {v}"))),
+        // canvas numbers are whole: a size of 640.7 or a seed of 1.5 is a mistake to report,
+        // not a value to round quietly
+        let int = |k: &str, d: i64, min: i64| -> Result<i64> {
+            let Some(v) = cfg.get(k) else { return Ok(d) };
+            let n = v
+                .as_i64()
+                // a seed may use all 64 bits; it is hashed as a u64
+                .or_else(|| v.as_u64().filter(|_| k == "seed").map(|u| u as i64))
+                .or_else(|| {
+                    v.as_f64()
+                        .filter(|f| f.fract() == 0.0 && f.abs() < 9e15)
+                        .map(|f| f as i64)
+                })
+                .ok_or_else(|| Error(format!("canvas.{k} must be a whole number, got {v}")))?;
+            if n < min {
+                return Err(Error(format!("canvas.{k} must be at least {min}, got {v}")));
             }
+            Ok(n)
         };
         let canvas = CanvasCfg {
-            width: num("width", 800.0)?,
-            height: num("height", 600.0)?,
+            width: int("width", 800, 1)? as usize,
+            height: int("height", 600, 1)? as usize,
             background: match cfg.get("background") {
                 None => [1.0, 1.0, 1.0],
                 Some(c) => parse_color(c)?,
             },
-            seed: num("seed", 0.0)?.trunc() as i64,
-            supersample: num("supersample", 1.0)?.trunc() as i64,
+            seed: int("seed", 0, i64::MIN)?,
+            // checked where it is used: a render may override it
+            supersample: int("supersample", 1, i64::MIN)?,
         };
 
         let mut named: HashMap<&str, Brush> = HashMap::new();
@@ -96,6 +108,24 @@ impl Scene {
             strokes.push(parse_stroke(s, &named).map_err(|e| Error(format!("stroke {idx}: {e}")))?);
         }
         Ok(Scene { canvas, strokes })
+    }
+}
+
+/// How far outside the canvas a control point may lie, in canvas sizes. Strokes may start off
+/// the canvas, but the path is walked a pixel at a time, so a point a million pixels away (a typo
+/// in a coordinate) would take seconds and gigabytes before anything is painted.
+pub const POINT_MARGIN: f64 = 16.0;
+
+impl Stroke {
+    /// The first control point more than [`POINT_MARGIN`] canvas sizes outside a `width` x
+    /// `height` canvas, if there is one.
+    pub fn far_point(&self, width: usize, height: usize) -> Option<[f64; 2]> {
+        let margin = POINT_MARGIN * width.max(height) as f64;
+        let outside = |v: f64, side: usize| v < -margin || v > side as f64 + margin;
+        self.points
+            .iter()
+            .find(|p| outside(p[0], width) || outside(p[1], height))
+            .map(|p| [p[0], p[1]])
     }
 }
 

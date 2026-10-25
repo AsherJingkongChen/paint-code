@@ -2,11 +2,9 @@
 import json
 import math
 import random
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
-from paintcode import render  # noqa: E402
+from paintcode import render_png
 
 W, H = 640, 640
 rnd = random.Random(1024)
@@ -107,6 +105,5 @@ for i in range(30):
 scene = {"canvas": {"width": W, "height": H, "background": "#2a2f4a", "seed": 24, "supersample": 2}, "strokes": S}
 out = Path(__file__).with_suffix("")
 out.with_suffix(".json").write_text(json.dumps(scene))
-c = render(scene)
-c.save(out.with_suffix(".png"))
+out.with_suffix(".png").write_bytes(render_png(scene))
 print(len(S), "strokes")

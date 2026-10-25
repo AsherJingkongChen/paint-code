@@ -1,5 +1,6 @@
 [build-system]
-requires = ["maturin>=1.5,<2"]
+# 1.9.4 sets PYO3_BUILD_EXTENSION_MODULE, so pyo3 needs no extension-module feature
+requires = ["maturin>=1.9.4,<2"]
 build-backend = "maturin"
 
 [project]
@@ -9,26 +10,20 @@ readme = "README.md"
 license = "BSD-3-Clause"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
-dependencies = ["numpy>=1.24", "pillow>=10"]
+dependencies = []
 dynamic = ["version"]
 
-[project.optional-dependencies]
-dev = ["pytest>=7"]
-
 [dependency-groups]
-dev = ["pytest>=7"]
+# numpy and Pillow are for the tests and the example scripts, not for the package
+dev = ["pytest>=7", "numpy>=1.24", "pillow>=10"]
 
-[project.scripts]
-paintcode = "paintcode.__main__:main"
-
-# One package, two engines: the Python sources in python/paintcode/ and the Rust core built
-# from bindings/python into paintcode._core. Keeping the sources under python/ means a Python
-# started at the repository root cannot import a half-built package by accident.
+# The engine is Rust, built from bindings/python into paintcode._core; python/paintcode/ only
+# re-exports it and carries the type stub. Keeping that under python/ means a Python started at
+# the repository root cannot import a half-built package by accident.
 [tool.maturin]
 manifest-path = "bindings/python/Cargo.toml"
 module-name = "paintcode._core"
 python-source = "python"
-features = ["pyo3/extension-module"]
 
 [tool.uv]
 # rebuild the extension whenever any Rust source changes, not only this file

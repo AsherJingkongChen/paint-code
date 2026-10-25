@@ -1,0 +1,162 @@
+{
+ "canvas": {
+  "width": 160,
+  "height": 90,
+  "background": "#203040",
+  "seed": 5
+ },
+ "brushes": {
+  "wet": {
+   "preset": "flat",
+   "pickup": 0.4,
+   "size": 9
+  }
+ },
+ "strokes": [
+  {
+   "brush": "round",
+   "color": "#e0a040",
+   "points": [
+    [
+     10,
+     20,
+     0.2
+    ],
+    [
+     60,
+     70,
+     1
+    ],
+    [
+     110,
+     30,
+     0.4
+    ]
+   ]
+  },
+  {
+   "brush": "wet",
+   "color": [
+    64,
+    160,
+    224
+   ],
+   "points": [
+    [
+     10,
+     80,
+     0.5,
+     0.3
+    ],
+    [
+     150,
+     10,
+     1,
+     0.8
+    ]
+   ]
+  },
+  {
+   "brush": "pencil",
+   "color": "#fff",
+   "smooth": false,
+   "points": [
+    [
+     20,
+     45
+    ],
+    [
+     100,
+     50
+    ],
+    [
+     140,
+     20
+    ]
+   ]
+  },
+  {
+   "brush": {
+    "preset": "nib",
+    "angle": 10
+   },
+   "color": "#111",
+   "points": [
+    [
+     30,
+     10
+    ],
+    [
+     30,
+     80
+    ]
+   ]
+  },
+  {
+   "brush": "blender",
+   "color": null,
+   "points": [
+    [
+     30,
+     30
+    ],
+    [
+     90,
+     60
+    ]
+   ]
+  },
+  {
+   "brush": "dry",
+   "color": "#a33",
+   "pos_jitter": 0.3,
+   "flow_jitter": 0.2,
+   "points": [
+    [
+     5,
+     5
+    ],
+    [
+     155,
+     85
+    ]
+   ]
+  },
+  {
+   "brush": "airbrush",
+   "color": "#ffe0b0",
+   "size": 12,
+   "points": [
+    [
+     60,
+     10,
+     0.3
+    ],
+    [
+     120,
+     30,
+     0.9
+    ]
+   ]
+  },
+  {
+   "brush": "ink",
+   "color": "#300",
+   "size": 1.2,
+   "points": [
+    [
+     150,
+     80
+    ],
+    [
+     140,
+     60
+    ],
+    [
+     150,
+     40
+    ]
+   ]
+  }
+ ]
+}

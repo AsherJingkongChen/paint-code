@@ -1,7 +1,7 @@
 //! The fast path must paint the same bits as the reference path: whole 3-sigma squares, `powf`
 //! on every pixel, one thread. Any speed-up that changes a pixel fails here.
 
-use paintcode::{render, RenderOpts, Scene, Spans};
+use paintcode::{RenderOpts, Scene, Spans, render};
 
 fn scene(name: &str) -> Scene {
     let path = format!("{}/../../examples/{name}", env!("CARGO_MANIFEST_DIR"));

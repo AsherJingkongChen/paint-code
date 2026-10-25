@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::math::gauss::{self, CUTOFF_Q};
 use rayon::prelude::*;
 
-use super::{grain, RgbImage};
+use super::{RgbImage, grain};
 
 /// One anisotropic 2D Gaussian dab.
 ///
@@ -22,10 +22,31 @@ pub struct Dab {
     pub grain_scale: f64,
 }
 
+/// A dab as it was laid on the canvas: its geometry (sigmas already raised to half a pixel) and
+/// the colour the brush held. This is what a PLY export writes, one splat per laid dab.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Laid {
+    pub dab: Dab,
+    pub rgb: [f32; 3],
+}
+
+/// The largest canvas the renderer allocates, in pixels, counted after scale and supersample.
+/// 2^28 pixels is a 16384 x 16384 canvas, 4 GiB of float RGB and wetness.
+pub const MAX_PIXELS: usize = 1 << 28;
+
+/// A zeroed buffer, or a message instead of an abort when the memory is not there.
+fn buffer(len: usize, what: &str) -> Result<Vec<f32>, String> {
+    let mut v = Vec::new();
+    v.try_reserve_exact(len)
+        .map_err(|_| format!("not enough memory for the {what} ({len} floats)"))?;
+    v.resize(len, 0f32);
+    Ok(v)
+}
+
 /// Which pixels of a dab's bounding square get evaluated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Spans {
-    /// The whole 3-sigma square with `powf` on every pixel, exactly as the Python engine does.
+    /// The whole 3-sigma square with `powf` on every pixel, exactly as the numpy engine of 0.4 did.
     /// Kept as the reference that the fast path is tested against.
     Square,
     /// Only the rows and columns the q <= 9 ellipse can touch, and no `powf` when the exponent
@@ -49,19 +70,10 @@ pub struct Footprint {
     spans: Vec<Span>,
     k: Vec<f32>,
     alpha: f32,
-    /// wsum <= 1e-8: the Python engine returns before compositing.
+    /// wsum <= 1e-8: nothing reaches the canvas, and the dab is neither composited nor recorded.
     pub skip: bool,
     y_min: usize,
     y_max: usize,
-}
-
-impl Footprint {
-    /// Every evaluated pixel as (x, y, kernel value), row by row.
-    pub fn pixels(&self) -> impl Iterator<Item = (usize, usize, f32)> + '_ {
-        self.spans
-            .iter()
-            .flat_map(move |sp| (0..sp.len).map(move |i| (sp.x0 + i, sp.y, self.k[sp.off + i])))
-    }
 }
 
 /// The wet paint under a dab: its kernel-weighted colour and how wet that area is (0..1).
@@ -92,26 +104,67 @@ pub struct Canvas {
     pub wet: Vec<f32>,
     /// Strokes painted so far; a stroke's index keys its jitter.
     pub strokes: i64,
+    /// Every dab laid so far, in order, when recording is on (for the PLY export).
+    pub laid: Option<Vec<Laid>>,
     grain: HashMap<u64, Vec<f32>>,
+}
+
+impl std::fmt::Debug for Canvas {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Canvas")
+            .field("width", &self.width)
+            .field("height", &self.height)
+            .field("seed", &self.seed)
+            .field("strokes", &self.strokes)
+            .field("laid", &self.laid.as_ref().map(Vec::len))
+            .finish_non_exhaustive()
+    }
 }
 
 const BAND: usize = 16;
 
 impl Canvas {
-    pub fn new(width: usize, height: usize, background: [f32; 3], seed: i64) -> Canvas {
-        let mut img = vec![0f32; width * height * 3];
+    /// A blank canvas. Fails, rather than aborting, when it is larger than [`MAX_PIXELS`] or the
+    /// memory cannot be had.
+    pub fn new(
+        width: usize,
+        height: usize,
+        background: [f32; 3],
+        seed: i64,
+    ) -> Result<Canvas, String> {
+        let pixels = width
+            .checked_mul(height)
+            .filter(|&n| n <= MAX_PIXELS)
+            .ok_or_else(|| {
+                format!(
+                    "a {width}x{height} canvas is too large: the limit is {MAX_PIXELS} pixels \
+                     (16384 x 16384), counted after scale and supersample"
+                )
+            })?;
+        let mut img = buffer(pixels * 3, "canvas")?;
         for px in img.chunks_exact_mut(3) {
             px.copy_from_slice(&background);
         }
-        Canvas {
+        Ok(Canvas {
             width,
             height,
             seed,
             img,
-            wet: vec![0f32; width * height],
+            wet: buffer(pixels, "wetness map")?,
             strokes: 0,
+            laid: None,
             grain: HashMap::new(),
+        })
+    }
+
+    /// A canvas that starts as an image. The image counts as dry paint: nothing is wet, so no
+    /// brush picks it up, but a smudge still loads from it.
+    pub fn from_rgb8(image: &RgbImage, seed: i64) -> Result<Canvas, String> {
+        let mut c = Canvas::new(image.width, image.height, [1.0; 3], seed)?;
+        for (o, &v) in c.img.iter_mut().zip(&image.data) {
+            *o = v as f32 / 255.0f32;
         }
+        Ok(c)
     }
 
     pub fn live(&self) -> Source<'_> {
@@ -185,8 +238,8 @@ impl Canvas {
 
     /// Evaluate one dab: its kernel, and if `pickup` the wet paint under it read from `src`.
     ///
-    /// This is the first half of `Canvas.stamp` in `python/paintcode/canvas.py`, with the same float32
-    /// arithmetic per pixel (the geometry above it is float64, as in Python).
+    /// The first half of laying one dab: float32 arithmetic per pixel, with the geometry above it
+    /// in float64 (the split the numpy engine of 0.4 had, kept so the pixels stay the same).
     pub fn footprint(
         &self,
         d: &Dab,
@@ -207,7 +260,7 @@ impl Canvas {
         let n = gauss::hardness_exponent(d.hardness) as f32;
         let gaussian = spans == Spans::Ellipse && n == 1.0;
         let paper = (d.grain > 0.0).then(|| self.grain_field(d.grain_scale));
-        // (1.0 - grain) + grain * g, with the Python floats rounded to float32 as numpy does
+        // (1.0 - grain) + grain * g, with the float64 brush values rounded to float32 first
         let (g_keep, g_amt) = ((1.0 - d.grain) as f32, d.grain as f32);
 
         // rows and columns to visit
@@ -227,7 +280,10 @@ impl Canvas {
 
         if spans == Spans::Ellipse {
             let (ex, ey) = gauss::half_extents(sx, sy, d.theta, q_pad);
-            fp.k.reserve((std::f64::consts::PI * (ex + 2.0) * (ey + 2.0)) as usize);
+            // the ellipse's area, but never more than the clipped square: a dab far larger than
+            // the canvas must not ask for more memory than the canvas has
+            let ellipse = std::f64::consts::PI * (ex + 2.0) * (ey + 2.0);
+            fp.k.reserve(ellipse.min(((x1 - x0) * (y1 - y0)) as f64) as usize);
         }
         let (mut wsum, mut kwsum) = (0f64, 0f64);
         let mut under = [0f64; 3];
@@ -296,8 +352,8 @@ impl Canvas {
     }
 
     /// Lay footprints down in order, "over" compositing, each in its colour. Rows are split into
-    /// bands that run in parallel; within a pixel the order and the arithmetic are those of
-    /// `Canvas.stamp`, so the result does not depend on the number of threads.
+    /// bands that run in parallel; within a pixel the order and the arithmetic are those of a
+    /// one-dab-at-a-time engine, so the result does not depend on the number of threads.
     pub fn composite(&mut self, prints: &[(&Footprint, [f32; 3])]) {
         let w = self.width;
         self.img
@@ -330,7 +386,7 @@ impl Canvas {
             });
     }
 
-    /// Gaussian-weighted colour around (x, y), as `Canvas.sample`: loads a smudge brush.
+    /// Gaussian-weighted colour around (x, y): loads a smudge brush.
     pub fn sample(&self, x: f64, y: f64, r: f64) -> [f32; 3] {
         let e = ((1.5 * r).ceil() as i64).max(1);
         let (xi, yi) = (x.trunc() as i64, y.trunc() as i64);
@@ -388,6 +444,14 @@ impl Canvas {
         self.width = w;
         self.height = h;
         self.grain.clear();
+        // laid dabs stay in output pixel units
+        let k = n as f64;
+        for l in self.laid.iter_mut().flatten() {
+            l.dab.x /= k;
+            l.dab.y /= k;
+            l.dab.sx /= k;
+            l.dab.sy /= k;
+        }
     }
 
     pub fn to_rgb8(&self) -> RgbImage {

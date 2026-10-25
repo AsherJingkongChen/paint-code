@@ -19,10 +19,10 @@ pub mod render;
 pub mod scene;
 pub mod stroke;
 
-pub use io::{image_to_png, png_to_image};
-pub use render::{Canvas, RgbImage, Spans};
+pub use io::{image_to_png, laid_to_ply, petal_to_scene, png_to_image, scene_to_petal};
+pub use render::{Canvas, Laid, RgbImage, Spans};
 pub use scene::{Error, Result, Scene};
-pub use stroke::Options;
+pub use stroke::{Options, Painted};
 
 #[derive(Debug, Clone, Copy)]
 pub struct RenderOpts {
@@ -30,6 +30,8 @@ pub struct RenderOpts {
     pub scale: f64,
     /// Paint at N times the size and box-filter down; `None` uses `canvas.supersample`.
     pub supersample: Option<i64>,
+    /// Keep every laid dab on the canvas (`Canvas::laid`), for a PLY export.
+    pub record: bool,
     pub stroke: Options,
 }
 
@@ -38,21 +40,81 @@ impl Default for RenderOpts {
         RenderOpts {
             scale: 1.0,
             supersample: None,
+            record: false,
             stroke: Options::default(),
         }
     }
 }
 
-/// Paint a scene, as `paintcode.scene.render`.
+/// Paint a scene on a blank canvas.
 pub fn render(scene: &Scene, opts: &RenderOpts) -> Result<Canvas> {
+    render_over(scene, None, opts)
+}
+
+/// Paint a scene, on top of `base` when there is one.
+///
+/// A base image is the canvas: its size replaces `canvas.width` and `canvas.height`, it replaces
+/// the background, and it counts as dry paint. It is painted at its own size, so `scale` and
+/// `supersample` must be 1 (the scene's own `canvas.supersample` is not used).
+pub fn render_over(scene: &Scene, base: Option<&RgbImage>, opts: &RenderOpts) -> Result<Canvas> {
     let cfg = &scene.canvas;
-    let ss = opts.supersample.unwrap_or(cfg.supersample);
-    if ss < 1 {
-        return Err(Error("supersample must be >= 1".into()));
+    if !(opts.scale.is_finite() && opts.scale > 0.0) {
+        return Err(Error(format!(
+            "scale must be a positive number, got {}",
+            opts.scale
+        )));
     }
-    let size = |v: f64| (v * opts.scale).round_ties_even() as usize * ss as usize;
-    let mut canvas = Canvas::new(size(cfg.width), size(cfg.height), cfg.background, cfg.seed);
-    let scale = opts.scale * ss as f64;
+    let (mut canvas, ss, scale) = match base {
+        Some(img) => {
+            if opts.scale != 1.0 || opts.supersample.is_some_and(|s| s != 1) {
+                return Err(Error(
+                    "a base image is painted at its own size: scale and supersample must be 1"
+                        .into(),
+                ));
+            }
+            (Canvas::from_rgb8(img, cfg.seed).map_err(Error)?, 1, 1.0)
+        }
+        None => {
+            let ss = opts.supersample.unwrap_or(cfg.supersample);
+            if ss < 1 {
+                let source = if opts.supersample.is_some() {
+                    "the supersample option"
+                } else {
+                    "canvas.supersample"
+                };
+                return Err(Error(format!("{source} must be at least 1, got {ss}")));
+            }
+            let side = |v: usize| (v as f64 * opts.scale).round_ties_even() as usize;
+            let (w, h) = (side(cfg.width), side(cfg.height));
+            if w == 0 || h == 0 {
+                return Err(Error(format!(
+                    "a {}x{} canvas at scale {} has no pixels",
+                    cfg.width, cfg.height, opts.scale
+                )));
+            }
+            let ss_u = ss as usize;
+            let (w, h) = (w.saturating_mul(ss_u), h.saturating_mul(ss_u));
+            let c = Canvas::new(w, h, cfg.background, cfg.seed).map_err(Error)?;
+            (c, ss, opts.scale * ss as f64)
+        }
+    };
+    if opts.record {
+        canvas.laid = Some(Vec::new());
+    }
+    // the canvas the scene's coordinates refer to: the base image, or canvas.width x height
+    let (cw, ch) = match base {
+        Some(img) => (img.width, img.height),
+        None => (cfg.width, cfg.height),
+    };
+    for (i, s) in scene.strokes.iter().enumerate() {
+        if let Some([x, y]) = s.far_point(cw, ch) {
+            return Err(Error(format!(
+                "stroke {i}: point [{x}, {y}] is too far outside the {cw}x{ch} canvas \
+                 (more than {} px)",
+                scene::POINT_MARGIN * cw.max(ch) as f64
+            )));
+        }
+    }
     for s in &scene.strokes {
         let brush = s.brush.scaled(scale);
         let pts: Vec<[f64; 4]> = s
@@ -64,10 +126,4 @@ pub fn render(scene: &Scene, opts: &RenderOpts) -> Result<Canvas> {
     }
     canvas.downsample(ss as usize);
     Ok(canvas)
-}
-
-/// Scene JSON in, PNG bytes out.
-pub fn render_png(scene_json: &str, opts: &RenderOpts) -> Result<Vec<u8>> {
-    let scene = Scene::from_json(scene_json)?;
-    Ok(image_to_png(&render(&scene, opts)?.to_rgb8()))
 }

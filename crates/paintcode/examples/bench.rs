@@ -1,7 +1,7 @@
 //! cargo run --release --example bench -- SCENE.json [--square] [--threads N] [--scale S] [--out canvas.f32]
 //!
 //! Renders a scene and prints the wall time. --out writes the float canvas (h, w, 3 little-endian
-//! f32) for comparing against the Python engine.
+//! f32) for comparing renders outside the tests.
 use std::time::Instant;
 
 fn main() {

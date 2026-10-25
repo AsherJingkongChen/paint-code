@@ -1,9 +1,9 @@
 use crate::math::rng;
-use crate::render::{Canvas, Dab, Footprint, Pickup, Spans};
+use crate::render::{Canvas, Dab, Footprint, Laid, Pickup, Spans};
 use crate::scene::{Brush, Color};
 use rayon::prelude::*;
 
-use super::path::{samples, Sample};
+use super::path::{Sample, samples};
 
 /// Knobs that change how fast a stroke is painted, never what it looks like.
 #[derive(Debug, Clone, Copy)]
@@ -27,14 +27,6 @@ struct Plan {
     dab: Dab,
     /// Exponent of the pickup mix for this dab: brush.step(p) / max(r, 1e-3).
     mix_exp: f64,
-}
-
-/// The dabs of a stroke, in order, before any pixel is touched (for tests and tools).
-pub fn layout(seed: i64, sid: i64, brush: &Brush, points: &[[f64; 4]], smooth: bool) -> Vec<Dab> {
-    plan(seed, brush, sid, &samples(points, brush, smooth))
-        .into_iter()
-        .map(|p| p.dab)
-        .collect()
 }
 
 fn plan(seed: i64, brush: &Brush, sid: i64, path: &[Sample]) -> Vec<Plan> {
@@ -97,7 +89,16 @@ fn plan(seed: i64, brush: &Brush, sid: i64, path: &[Sample]) -> Vec<Plan> {
     out
 }
 
-/// Lay one stroke onto the canvas. Returns the number of dabs.
+/// What one stroke left behind.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Painted {
+    /// Dabs laid out along the path (some may fall off the canvas).
+    pub dabs: usize,
+    /// The colour on the brush after its last dab, pickup included.
+    pub carried: [f32; 3],
+}
+
+/// Lay one stroke onto the canvas.
 pub fn paint_stroke(
     canvas: &mut Canvas,
     brush: &Brush,
@@ -105,13 +106,17 @@ pub fn paint_stroke(
     points: &[[f64; 4]],
     smooth: bool,
     opts: Options,
-) -> usize {
+) -> Painted {
     let sid = canvas.strokes;
     canvas.strokes += 1;
     let path = samples(points, brush, smooth);
     let plans = plan(canvas.seed, brush, sid, &path);
     if plans.is_empty() {
-        return 0;
+        let carried = match color {
+            Color::Rgb(c) => *c,
+            Color::Smudge => [0.0; 3],
+        };
+        return Painted { dabs: 0, carried };
     }
     if brush.grain > 0.0 {
         canvas.prepare_grain(brush.grain_scale);
@@ -143,7 +148,7 @@ pub fn paint_stroke(
     chunks.push(start..plans.len());
 
     // Pickup reads the canvas as it was when the stroke began. With one chunk nothing has been
-    // composited yet, so the live canvas is that state; with more, keep a snapshot like Python.
+    // composited yet, so the live canvas is that state; with more, keep a snapshot of it.
     let snapshot = (pickup && chunks.len() > 1).then(|| {
         let b = plans.iter().filter_map(|p| canvas.bounds(&p.dab));
         let (x0, x1, y0, y1) = b.fold((usize::MAX, 0, usize::MAX, 0), |a, (x0, x1, y0, y1)| {
@@ -165,7 +170,7 @@ pub fn paint_stroke(
             .collect();
         // carry the colour along: each dab is laid in the colour the brush holds before its own pickup
         let mut colours = Vec::with_capacity(evaluated.len());
-        for (plan, (_, under)) in plans[range].iter().zip(&evaluated) {
+        for (plan, (_, under)) in plans[range.clone()].iter().zip(&evaluated) {
             colours.push(carried);
             if let (true, Some(u)) = (pickup, under) {
                 let mix = 1.0 - (1.0 - brush.pickup * u.wetness).powf(plan.mix_exp);
@@ -178,6 +183,20 @@ pub fn paint_stroke(
         let prints: Vec<(&Footprint, [f32; 3])> =
             evaluated.iter().map(|(f, _)| f).zip(colours).collect();
         canvas.composite(&prints);
+        if let Some(laid) = canvas.laid.as_mut() {
+            // only the dabs that reached the canvas, as they were laid
+            for (plan, (fp, rgb)) in plans[range].iter().zip(&prints) {
+                if !fp.skip {
+                    let mut dab = plan.dab;
+                    dab.sx = dab.sx.max(0.5);
+                    dab.sy = dab.sy.max(0.5);
+                    laid.push(Laid { dab, rgb: *rgb });
+                }
+            }
+        }
     }
-    plans.len()
+    Painted {
+        dabs: plans.len(),
+        carried,
+    }
 }
