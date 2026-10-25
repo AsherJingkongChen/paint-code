@@ -7,7 +7,7 @@ The coat over the background is the canvas, the pixels you see.
 A flower:
 
     {"width": 640, "height": 640, "background": "#2a2f4a", "seed": 24,
-     "brushes": {"soft": {"preset": "filbert", "size": 8.5}},
+     "brushes": {"soft": {"brush": "filbert", "size": 8.5}},
      "petals": [
         {"brush": "soft", "color": [234, 164, 52], "points": [[330, 270, 0.3], [380, 240, 1.0]]},
         {"brush": "ink", "color": "#e8d9b0", "size": 1.4, "points": [[340, 268], [400, 246]]},

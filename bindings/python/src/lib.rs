@@ -320,10 +320,10 @@ fn paintcode_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(flower_on_canvas, m)?)?;
     m.add_function(wrap_pyfunction!(flower_off_canvas, m)?)?;
     // every brush with its fields, as a flower would write them
-    let brushes: serde_json::Map<String, Value> = paintcode::flower::PRESET_NAMES
+    let brushes: serde_json::Map<String, Value> = paintcode::flower::BRUSH_NAMES
         .iter()
         .map(|n| {
-            let b = paintcode::flower::preset(n).expect("a listed brush");
+            let b = paintcode::flower::brush(n).expect("a listed brush");
             (n.to_string(), Value::Object(b.to_fields()))
         })
         .collect();

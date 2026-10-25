@@ -58,11 +58,13 @@ impl Default for Brush {
     }
 }
 
-pub const PRESET_NAMES: [&str; 9] = [
+/// The brushes a petal can name.
+pub const BRUSH_NAMES: [&str; 9] = [
     "ink", "pencil", "nib", "round", "filbert", "flat", "airbrush", "dry", "blender",
 ];
 
-pub fn preset(name: &str) -> Option<Brush> {
+/// One of the [`BRUSH_NAMES`].
+pub fn brush(name: &str) -> Option<Brush> {
     let d = Brush::default();
     Some(match name {
         "ink" => Brush {
@@ -155,26 +157,23 @@ pub fn preset(name: &str) -> Option<Brush> {
 }
 
 impl Brush {
-    /// Brush from a preset name, or an object `{"preset": ..., field: value, ...}`.
+    /// Brush from a name, or an object `{"brush": ..., field: value, ...}`.
     pub fn from_spec(spec: &Value) -> Result<Brush> {
         match spec {
-            Value::String(name) => preset(name).ok_or_else(|| {
-                Error(format!(
-                    "unknown preset {name:?}; have {:?}",
-                    sorted_presets()
-                ))
-            }),
+            Value::String(name) => brush(name)
+                .ok_or_else(|| Error(format!("unknown brush {name:?}; have {:?}", sorted_names()))),
+            Value::Object(m) if m.contains_key("preset") => {
+                err("\"preset\" is called \"brush\" now: {\"brush\": \"filbert\", ...}")
+            }
             Value::Object(m) => {
                 let mut fields = m.clone();
-                let base = match fields.remove("preset") {
+                let base = match fields.remove("brush") {
                     Some(p) => Brush::from_spec(&p)?,
                     None => Brush::default(),
                 };
                 base.with_fields(&fields)
             }
-            other => err(format!(
-                "a brush is a preset name or an object, got {other}"
-            )),
+            other => err(format!("a brush is a name or an object, got {other}")),
         }
     }
 
@@ -231,8 +230,8 @@ impl Brush {
         Ok(b)
     }
 
-    /// Every field by its name in a flower, the inverse of [`Brush::with_fields`]: what a preset
-    /// is, written the way a flower would write it (`angle` and `half_life` may be null).
+    /// Every field by its name in a flower, the inverse of [`Brush::with_fields`]: what a named
+    /// brush is, written the way a flower would write it (`angle` and `half_life` may be null).
     pub fn to_fields(&self) -> Map<String, Value> {
         let opt = |v: Option<f64>| v.map_or(Value::Null, Value::from);
         let values = [
@@ -331,9 +330,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fields_round_trip_for_every_preset() {
-        for name in PRESET_NAMES {
-            let b = preset(name).unwrap();
+    fn fields_round_trip_for_every_brush() {
+        for name in BRUSH_NAMES {
+            let b = brush(name).unwrap();
             let fields = b.to_fields();
             assert_eq!(fields.len(), FIELDS.len());
             assert_eq!(Brush::default().with_fields(&fields).unwrap(), b, "{name}");
@@ -341,8 +340,8 @@ mod tests {
     }
 }
 
-fn sorted_presets() -> Vec<&'static str> {
-    let mut v = PRESET_NAMES.to_vec();
+fn sorted_names() -> Vec<&'static str> {
+    let mut v = BRUSH_NAMES.to_vec();
     v.sort();
     v
 }

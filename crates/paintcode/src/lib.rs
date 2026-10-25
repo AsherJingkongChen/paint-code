@@ -10,7 +10,7 @@
 //! | module   | part   | may use               | does                                            |
 //! |----------|--------|-----------------------|-------------------------------------------------|
 //! | `math`   | leaf   | nothing               | counter-based RNG, dab profile and geometry     |
-//! | `flower` | bones  | math                  | flower, petal and brush types, presets, colours |
+//! | `flower` | bones  | math                  | flower, petal and brush types, brushes, colours |
 //! | `render` | render | math                  | dabs to pixels, coats, paper grain, downsampling|
 //! | `petal`  | flesh  | math, flower, render  | petals to dabs, carrying paint                  |
 //! | `io`     | files  | flower, render        | encoders and decoders, in pairs                 |

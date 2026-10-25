@@ -7,7 +7,7 @@ mod brush;
 mod color;
 mod parse;
 
-pub use brush::{Brush, PRESET_NAMES, preset};
+pub use brush::{BRUSH_NAMES, Brush, brush};
 pub use color::parse_color;
 pub use parse::{Color, Flower, POINT_MARGIN, Petal};
 

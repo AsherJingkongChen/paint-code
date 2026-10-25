@@ -1,7 +1,7 @@
 //! What the engine promises, one behaviour per test (ported from the numpy engine's
 //! tests/test_engine.py when that engine retired).
 
-use paintcode::flower::{Brush, Color, preset};
+use paintcode::flower::{Brush, Color, brush};
 use paintcode::petal::{Options, paint_petal, samples};
 use paintcode::render::{Coat, Dab, Spans, WetCanvas};
 use paintcode::{Flower, RenderOpts, flower_to_coat, lay_coat, paint_flower};
@@ -54,7 +54,7 @@ fn seed_changes_jitter() {
 
 #[test]
 fn duplicate_points_do_not_change_the_petal() {
-    let b = preset("ink").unwrap();
+    let b = brush("ink").unwrap();
     let pts = row(&[[10., 40.], [60., 40.], [110., 40.], [150., 40.]]);
     let dup = row(&[
         [10., 40.],
@@ -96,7 +96,7 @@ fn joints_keep_the_stroke_direction() {
 
 #[test]
 fn pressure_grows_radius_and_flow() {
-    let b = preset("round").unwrap();
+    let b = brush("round").unwrap();
     let ps: Vec<f64> = (0..=10).map(|i| i as f64 / 10.0).collect();
     let r: Vec<f64> = ps.iter().map(|&p| b.radius(p)).collect();
     let f: Vec<f64> = ps.iter().map(|&p| b.flow_at(p)).collect();
@@ -210,7 +210,7 @@ fn a_smudge_starts_with_the_colour_under_it() {
     }
     petal(
         &mut c,
-        &preset("blender").unwrap(),
+        &brush("blender").unwrap(),
         Color::Smudge,
         &row(&[[20., 20.], [80., 20.]]),
     );
@@ -536,6 +536,8 @@ fn the_old_names_are_explained() {
     assert!(e(json!({"canvas": {"width": 10}})).contains("top of the flower"));
     assert!(e(json!({"strokes": []})).contains("petals"));
     assert!(e(json!({"colour": "#fff"})).contains("unknown key"));
+    let old = json!({"brushes": {"soft": {"preset": "filbert"}}});
+    assert!(e(old).contains("\"preset\" is called \"brush\" now"));
 }
 
 #[test]

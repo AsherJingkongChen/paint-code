@@ -5,7 +5,7 @@
  "seed": 5,
  "brushes": {
   "wet": {
-   "preset": "flat",
+   "brush": "flat",
    "pickup": 0.4,
    "size": 9
   }
@@ -75,7 +75,7 @@
   },
   {
    "brush": {
-    "preset": "nib",
+    "brush": "nib",
     "angle": 10
    },
    "color": "#111",

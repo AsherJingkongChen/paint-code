@@ -60,7 +60,7 @@ Files are told apart by their bytes, not their names: `load_flower` reads JSON, 
 
 The same flower always produces the same pixels. Jitter is counter-based: every random number is a hash of (seed, petal index, dab index, slot), so editing or lengthening one petal never moves the jitter of another, and appending petals leaves the ones before them alone. To keep working on a painting, load its flower, append petals and paint it again.
 
-Version 0.6 paints the same pixels as 0.5 under new names: a scene is a flower, a stroke is a petal, `PRESETS` is `BRUSHES`, and the flower is flat (`width`, `height`, `background` and `seed` at the top; `supersample` is an option of the paint). The `.petal` ZIP is gone: a `.flower.json` holds the flower and a `.flower.png` carries it on its canvas. Painting over a base image is gone too. A `.coat.ply` keeps every dab exactly, so it is larger than 0.5's `.ply`.
+Version 0.6 paints the same pixels as 0.5 under new names: a scene is a flower, a stroke is a petal, `PRESETS` is `BRUSHES` (and a brush object names the brush it starts from with `"brush"`, not `"preset"`), and the flower is flat (`width`, `height`, `background` and `seed` at the top; `supersample` is an option of the paint). The `.petal` ZIP is gone: a `.flower.json` holds the flower and a `.flower.png` carries it on its canvas. Painting over a base image is gone too. A `.coat.ply` keeps every dab exactly, so it is larger than 0.5's `.ply`.
 
 Version 0.5 paints the same pixels as 0.4 (within 1/255 on the PNG, 1e-5 on the float canvas). It is stricter about mistakes: canvas `width`, `height`, `seed` and `supersample` must be whole numbers written as numbers (0.4 also took `"640"` and rounded `640.7`), a control point may not lie more than 16 canvas sizes off the canvas (the base image's size, when there is one), and a canvas or a base PNG is at most 2^28 pixels after scale and supersample; each of these is an error naming the stroke or field, where 0.4 rounded quietly, hung or crashed. A base image is PNG only; 0.4 took anything Pillow opens. 0.4's command line (`python -m paintcode`) is gone; every option it had is a keyword of `render_png` and `render_ply`. A 16-bit base PNG keeps its tones (0.4 clipped 16-bit grey to white). Version 0.4 changed the random numbers (jitter and paper tooth), so a scene from 0.3 renders with slightly different jitter.
 
@@ -69,7 +69,7 @@ Version 0.5 paints the same pixels as 0.4 (within 1/255 on the PNG, 1e-5 on the 
 ```json
 {
   "width": 640, "height": 640, "background": "#2a2f4a", "seed": 24,
-  "brushes": { "soft": { "preset": "filbert", "size": 8.5 } },
+  "brushes": { "soft": { "brush": "filbert", "size": 8.5 } },
   "petals": [
     { "brush": "soft", "color": [234, 164, 52],
       "points": [[330, 270, 0.3], [380, 240, 1.0], [420, 250, 0.45]] },
@@ -81,7 +81,7 @@ Version 0.5 paints the same pixels as 0.4 (within 1/255 on the PNG, 1e-5 on the 
 ```
 
 - **points** are `[x, y]`, `[x, y, pressure]` or `[x, y, pressure, tilt]`, with pressure and tilt in 0..1 (defaults 1 and 0). Coordinates are floats.
-- **brush** is a name from `paintcode.BRUSHES`, a name from `brushes`, or an inline object `{"preset": ..., ...}`. Any brush field can also be overridden directly on the petal.
+- **brush** is a name from `paintcode.BRUSHES`, a name from `brushes`, or an inline object `{"brush": ..., ...}`. Any brush field can also be overridden directly on the petal.
 - **color** is `[r, g, b]` (0..255) or `"#rrggbb"`. `null` loads the brush with whatever is under its first touch, which makes it a smudge.
 - **smooth** (default `true`) runs a centripetal Catmull-Rom spline through the points; `false` keeps straight segments.
 
