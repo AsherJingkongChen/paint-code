@@ -1,0 +1,79 @@
+{
+ "canvas": {
+  "width": 120,
+  "height": 90,
+  "background": "#203040",
+  "seed": 5
+ },
+ "strokes": [
+  {
+   "brush": "round",
+   "hardness": 0,
+   "color": "#e0a040",
+   "points": [
+    [
+     10,
+     20,
+     0.2
+    ],
+    [
+     60,
+     70,
+     1
+    ],
+    [
+     110,
+     30,
+     0.4
+    ]
+   ]
+  },
+  {
+   "brush": "filbert",
+   "hardness": 0,
+   "grain": 0,
+   "color": "#40a0e0",
+   "points": [
+    [
+     10,
+     80
+    ],
+    [
+     110,
+     10
+    ]
+   ]
+  },
+  {
+   "brush": "ink",
+   "hardness": 0,
+   "color": "#ffffff",
+   "points": [
+    [
+     20,
+     45,
+     0.3
+    ],
+    [
+     100,
+     50,
+     1
+    ]
+   ]
+  },
+  {
+   "brush": "blender",
+   "color": null,
+   "points": [
+    [
+     30,
+     30
+    ],
+    [
+     90,
+     60
+    ]
+   ]
+  }
+ ]
+}

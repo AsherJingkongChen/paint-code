@@ -1,0 +1,69 @@
+{
+ "brush_sheet": {
+  "scene": "examples/brush_sheet.json",
+  "options": {},
+  "width": 720,
+  "height": 670
+ },
+ "kiku": {
+  "scene": "examples/kiku.json",
+  "options": {},
+  "width": 640,
+  "height": 640
+ },
+ "features": {
+  "scene": "tests/golden/features.json",
+  "options": {},
+  "width": 160,
+  "height": 90,
+  "float": "features.u16.gz"
+ },
+ "features_scale2": {
+  "scene": "tests/golden/features.json",
+  "options": {
+   "scale": 2.0
+  },
+  "width": 320,
+  "height": 180,
+  "float": "features_scale2.u16.gz"
+ },
+ "features_ss3": {
+  "scene": "tests/golden/features.json",
+  "options": {
+   "supersample": 3
+  },
+  "width": 160,
+  "height": 90,
+  "float": "features_ss3.u16.gz"
+ },
+ "features_half_ss2": {
+  "scene": "tests/golden/features.json",
+  "options": {
+   "scale": 0.5,
+   "supersample": 2
+  },
+  "width": 80,
+  "height": 45,
+  "float": "features_half_ss2.u16.gz"
+ },
+ "features_on_base": {
+  "scene": "tests/golden/features.json",
+  "options": {
+   "base": "tests/golden/base.png"
+  },
+  "width": 160,
+  "height": 90,
+  "float": "features_on_base.u16.gz"
+ },
+ "ply_scene": {
+  "scene": "tests/golden/ply_scene.json",
+  "options": {
+   "ply": true
+  },
+  "width": 120,
+  "height": 90,
+  "float": "ply_scene.u16.gz",
+  "ply": "ply_scene.ply",
+  "splats": 538
+ }
+}
