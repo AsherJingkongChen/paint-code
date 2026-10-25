@@ -3,7 +3,8 @@ use serde_json::{Map, Value};
 
 use super::{err, Error, Result};
 
-/// How one control point (x, y, pressure, tilt) becomes one dab. Fields as in `brush.py`.
+/// How one control point (x, y, pressure, tilt) becomes one dab. The fields are the README's
+/// "Brush fields" table.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Brush {
     pub size: f64,
@@ -177,7 +178,7 @@ impl Brush {
         }
     }
 
-    /// A copy with some fields replaced; unknown names are an error (as `Brush.with_`).
+    /// A copy with some fields replaced; unknown names are an error.
     pub fn with_fields(&self, fields: &Map<String, Value>) -> Result<Brush> {
         let unknown: Vec<&str> = fields
             .keys()
@@ -230,7 +231,7 @@ impl Brush {
         Ok(b)
     }
 
-    /// Sizes and distances scaled for a larger render (as `scene._scaled`).
+    /// Sizes and distances scaled for a larger render.
     pub fn scaled(&self, scale: f64) -> Brush {
         if scale == 1.0 {
             return self.clone();

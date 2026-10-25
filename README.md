@@ -11,8 +11,8 @@ It was written so a language model can paint with its own strokes: the model wri
 ## Install
 
 ```bash
-uv sync                     # the package with both engines, and pytest (needs a Rust toolchain)
-pip install .               # or with pip
+pip install .               # builds the engine (needs a Rust toolchain)
+uv sync                     # for development: the package, pytest, numpy and Pillow
 ```
 
 ## Render
@@ -22,8 +22,10 @@ python -m paintcode scene.json -o out.png -o out.petal -o out.ply   # one render
 python -m paintcode out.petal -o again.png                          # a project renders like a scene
 python -m paintcode scene.json -o big.png --scale 2                 # coordinates and brush sizes scale together
 python -m paintcode scene.json -o crisp.png --ss 3                  # supersample hard edges
-python -m paintcode scene.json -o out.png --base old.png            # paint over an image (treated as dry paint)
+python -m paintcode scene.json -o out.png --base old.png            # paint over a PNG, at its size (treated as dry paint)
 ```
+
+Installed, the same command is also `paintcode`. Either way it is the engine's own command line; Python only hands it the arguments.
 
 | export | what it is |
 |---|---|
@@ -33,7 +35,7 @@ python -m paintcode scene.json -o out.png --base old.png            # paint over
 
 The same scene and seed always produce the same pixels. Jitter is counter-based: every random number is a hash of (seed, stroke index, dab index, slot), so editing or lengthening one stroke never moves the jitter of another, and appending strokes leaves the ones before them alone. To keep working on a painting, append strokes to the scene and render it again rather than painting over the PNG: re-rendering keeps the wet-paint state that `--base` cannot recover.
 
-Version 0.4 changed the random numbers (jitter and paper tooth), so a scene from 0.3 renders with slightly different jitter.
+Version 0.5 paints the same pixels as 0.4 (within 1/255 on the PNG, 1e-5 on the float canvas). It is stricter about mistakes: canvas `width`, `height`, `seed` and `supersample` must be whole numbers, a control point may not lie more than 16 canvas sizes off the canvas, and a canvas is at most 2^28 pixels after scale and supersample; each of these is an error naming the stroke or field, where 0.4 rounded quietly, hung or crashed. Version 0.4 changed the random numbers (jitter and paper tooth), so a scene from 0.3 renders with slightly different jitter.
 
 ## Scene format
 
@@ -72,7 +74,7 @@ A Gaussian is a low-pass filter, so a stroke made of Gaussians has soft edges by
 
 `.ply` writes one Gaussian per dab: position on the image plane (x right, y down, the longer side spanning $[-1, 1]$), scales $\log\sigma$ with a vanishing third axis, a quaternion for the dab angle about $z$, colour as the SH DC term, opacity as a logit. Paint order becomes depth: the first dab is farthest and the last is nearest to a camera on the $-z$ side, so depth-sorted splatting composites them in the order they were painted. The stack is only 0.05 deep, so this holds facing the plane: turned away, the splats sort by where they sit instead of when they were painted, and the wide early sky strokes drift in front of the flower. The files open in [SuperSplat](https://superspl.at/editor) through File > Import.
 
-`paintcode.ply.render_splats` is a separate, plain rasteriser that reads only the PLY. For a painting made with hardness 0 and no grain it reproduces the PNG to within 2/255 (`test_ply_is_the_painting`). The 3DGS kernel has no hardness or grain, so other paintings come back softer:
+The tests carry a separate, plain rasteriser that reads only the PLY. For a painting made with hardness 0 and no grain it reproduces the canvas to within 2/255 (`a_soft_painting_round_trips_through_the_ply` in `crates/paintcode/tests/engine.rs`). The 3DGS kernel has no hardness or grain, so other paintings come back softer:
 
 ![The painting, and the same dabs rendered back from the PLY](examples/png_vs_ply.png)
 
@@ -105,17 +107,24 @@ The canvas keeps a wetness map. Every dab makes the area under it wetter, and `p
 ## Python
 
 ```python
-from paintcode import Canvas, get_brush, paint_stroke
+import paintcode
 
-c = Canvas(400, 200, background="#f4efe6", seed=1)
-paint_stroke(c, get_brush("nib"), "#223", [[20, 100], [80, 140], [140, 90]])
-paint_stroke(c, get_brush("filbert").with_(size=12), [200, 120, 40], [[20, 170, 0.3], [200, 165, 1], [380, 175, 0.2]])
-c.save("out.png")
+scene = {"canvas": {"width": 400, "height": 200, "background": "#f4efe6", "seed": 1},
+         "strokes": [{"brush": "nib", "color": "#223", "points": [[20, 100], [80, 140], [140, 90]]},
+                     {"brush": "filbert", "size": 12, "color": [200, 120, 40],
+                      "points": [[20, 170, 0.3], [200, 165, 1], [380, 175, 0.2]]}]}
+
+open("out.png", "wb").write(paintcode.render_png(scene))            # also scale=, supersample=, base=
+open("out.ply", "wb").write(paintcode.render_ply(scene))            # every dab as a splat
+open("out.petal", "wb").write(paintcode.scene_to_petal(scene))      # the project: strokes, never dabs
+scene = paintcode.petal_to_scene(open("out.petal", "rb").read())
 ```
 
-## Rust core
+A scene is a dict or JSON text. Mistakes raise `ValueError` with a message that names the stroke or field. `help(paintcode._core)` and the type stub `paintcode/_core.pyi` describe every function; the package has no dependencies of its own.
 
-The same engine in Rust: one library, `crates/paintcode`, with one module per part of the engine. `bindings/python` builds it into this package as `paintcode._core`, so `pip install` gives one package with both engines: `paintcode` (Python, the reference, and the only one with PLY, `.petal` and `--base` for now) and `paintcode.core` (Rust). Inside the library, dependencies point one way, from the leaf up; `tests/layering.rs` fails if a module reaches back down the list.
+## The engine
+
+The engine is Rust: one library, `crates/paintcode`, with one module per part of the engine. `bindings/python` builds it into the Python package as `paintcode._core`; the rest of the package only re-exports it. Inside the library, dependencies point one way, from the leaf up, and `tests/layering.rs` fails if a module reaches back down the list.
 
 | module | part | may use | does |
 |---|---|---|---|
@@ -123,35 +132,33 @@ The same engine in Rust: one library, `crates/paintcode`, with one module per pa
 | `scene` | bones | math | scene, brush and stroke types, presets, colours |
 | `render` | render | math | dabs to pixels, paper grain, downsampling |
 | `stroke` | flesh | math, scene, render | control points to dabs, carrying paint |
-| `io` | files | render | encoders and decoders, in pairs |
+| `io` | files | render | encoders and decoders, in pairs: PNG, `.petal`, PLY |
+| `cli` | — | scene, render, io | the command line |
 
-The Python engine stays the reference. The core paints the same float32 arithmetic and is checked against it at 1e-5 on the float canvas; on `kiku.json` the largest difference is 2.4e-7.
+Up to 0.4 a numpy engine in this package was the reference, and the core was checked against it at 1e-5 on the float canvas (2.4e-7 at worst on `kiku.json`). 0.5 retired it: its output for the examples and a feature matrix is frozen in `tests/golden/`, and the core is checked against those files.
 
-A stroke is painted in two parallel phases: every dab's kernel and the wet paint under it are evaluated independently (pickup reads the canvas as it was when the stroke began, as the Python snapshot does), then the dabs are composited in order, one band of rows per thread. The fast path also skips the parts of each dab's square that lie outside its $q \le 9$ ellipse. None of this changes a bit: the tests render with the reference path (whole squares, `powf` everywhere, one thread) and require identical output.
+A stroke is painted in two parallel phases: every dab's kernel and the wet paint under it are evaluated independently (pickup reads the canvas as it was when the stroke began), then the dabs are composited in order, one band of rows per thread. The fast path also skips the parts of each dab's square that lie outside its $q \le 9$ ellipse. None of this changes a bit: the tests render with the reference path (whole squares, `powf` everywhere, one thread) and require identical output.
 
 `kiku.json`, 640², supersample 2, on a 2-core VM:
 
 | engine | time |
 |---|---|
-| Python | 52 s |
+| numpy (0.4) | 52 s |
 | Rust, 1 thread | 7.0 s |
 | Rust, 2 threads | 3.5 s |
 
 ```bash
-uv sync                                                                # builds the core into python/paintcode/; rebuilds when any .rs changes
-uv run python -c "import json, paintcode.core as c; open('k.png', 'wb').write(c.render_png(json.load(open('examples/kiku.json')), scale=2))"
 cargo run --release --example bench -- examples/kiku.json            # time a render
 ```
 
 ## Tests
 
 ```bash
-uv run pytest               # the engine, and the core against it
-uv run pytest --slow        # also kiku.json through both engines (a minute)
-cargo test --release -p paintcode   # the fast path against the reference path, and the module layering
+cargo test --release -p paintcode -- --include-ignored   # the engine: behaviour, golden output, fast path = reference path, layering
+uv run pytest                                            # the Python face: arguments, bytes, errors, files, the CLI
 ```
 
-They cover determinism, the pinned random numbers, jitter that stays put when another stroke changes, float32 pixel arithmetic, duplicate control points, stroke direction at joints, the pressure curves, the Gaussian profile, hardness, supersampling, spacing-independent pickup, dry backgrounds, smudging, and both export round trips.
+`tests/golden/make.py` made the golden files with the numpy engine at 0.4; it does not run on 0.5, which no longer has that engine.
 
 ## Credits
 

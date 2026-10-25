@@ -1,6 +1,6 @@
 //! The bones: what a painting is made of, as plain data.
 //!
-//! A [`Scene`] is the JSON scene of `python/paintcode/scene.py`: canvas settings, named brushes and an
+//! A [`Scene`] is the JSON scene of the README: canvas settings, named brushes and an
 //! ordered list of strokes. Nothing here paints; it only parses and validates.
 
 mod brush;

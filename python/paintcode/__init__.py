@@ -1,10 +1,24 @@
-"""paintcode: a small dab engine. Every brush mark is a row of anisotropic 2D Gaussians."""
+"""paintcode: a small dab engine. Every brush mark is a row of anisotropic 2D Gaussians.
 
-from .brush import PRESETS, Brush, get as get_brush
-from .canvas import Canvas, parse_color
-from .scene import load as load_scene, render
-from .stroke import paint_stroke, samples
+    import paintcode
+    png = paintcode.render_png(scene)            # scene: a dict, or JSON text
+    ply = paintcode.render_ply(scene)            # every dab as a 3D Gaussian splat
+    petal = paintcode.scene_to_petal(scene)      # the project file: strokes, never dabs
+    scene = paintcode.petal_to_scene(petal)
 
-__all__ = ["Brush", "PRESETS", "get_brush", "Canvas", "parse_color", "paint_stroke", "samples",
-           "render", "load_scene"]
-__version__ = "0.4.0"
+The engine is Rust (paintcode._core); this package is its Python face. See help(paintcode._core)
+or the README for the scene format.
+"""
+
+from ._core import (
+    PRESETS,
+    __version__,
+    main,
+    petal_to_scene,
+    render_f32,
+    render_ply,
+    render_png,
+    scene_to_petal,
+)
+
+__all__ = ["PRESETS", "main", "petal_to_scene", "render_f32", "render_ply", "render_png", "scene_to_petal"]

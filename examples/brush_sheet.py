@@ -1,13 +1,12 @@
 """Every preset drawing the same S-curve, pressure rising then falling."""
 import json
 import math
-import sys
+import io
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
-from PIL import ImageDraw  # noqa: E402
+from PIL import Image, ImageDraw   # only for the labels; the painting is paintcode's
 
-from paintcode import PRESETS, render  # noqa: E402
+from paintcode import PRESETS, render_png
 
 names = list(PRESETS)
 W, ROW = 720, 70
@@ -31,7 +30,7 @@ scene = {"canvas": {"width": W, "height": 40 + ROW * len(names), "background": "
          "strokes": strokes}
 out = Path(__file__).with_suffix("")
 out.with_suffix(".json").write_text(json.dumps(scene, indent=1))
-img = render(scene).to_image()
+img = Image.open(io.BytesIO(render_png(scene))).convert("RGB")
 d = ImageDraw.Draw(img)
 for i, name in enumerate(names):
     d.text((24, 40 + i * ROW - 6), name, fill=(80, 84, 100))

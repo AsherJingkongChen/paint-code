@@ -13,4 +13,5 @@ crate-type = ["cdylib"]
 
 [dependencies]
 paintcode.workspace = true
+serde_json.workspace = true
 pyo3 = { version = "0.30", features = ["abi3-py310"] }

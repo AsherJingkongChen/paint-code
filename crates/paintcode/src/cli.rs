@@ -7,7 +7,7 @@ use std::time::Instant;
 use serde_json::Value;
 
 use crate::io::{image_to_png, laid_to_ply, petal_to_scene, png_to_image, scene_to_petal};
-use crate::scene::{parse_color, Error, Result, Scene};
+use crate::scene::{Error, Result, Scene};
 use crate::{render_over, RenderOpts};
 
 pub const USAGE: &str = "\
@@ -182,15 +182,7 @@ pub fn run(argv: &[String]) -> Result<Vec<String>> {
             }
             _ => {
                 // over a base image there is no single paper colour to note
-                let bg = if base.is_some() {
-                    None
-                } else {
-                    let c = value.get("canvas").and_then(|c| c.get("background"));
-                    Some(match c {
-                        Some(c) => parse_color(c)?,
-                        None => [1.0; 3],
-                    })
-                };
+                let bg = base.is_none().then_some(scene.canvas.background);
                 let laid = canvas.laid.as_deref().unwrap_or(&[]);
                 write(o, &laid_to_ply(laid, canvas.width, canvas.height, bg))?;
                 report.push(format!("{o}  {} splats", laid.len()));

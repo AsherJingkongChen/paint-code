@@ -46,7 +46,7 @@ fn buffer(len: usize, what: &str) -> Result<Vec<f32>, String> {
 /// Which pixels of a dab's bounding square get evaluated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Spans {
-    /// The whole 3-sigma square with `powf` on every pixel, exactly as the Python engine does.
+    /// The whole 3-sigma square with `powf` on every pixel, exactly as the numpy engine of 0.4 did.
     /// Kept as the reference that the fast path is tested against.
     Square,
     /// Only the rows and columns the q <= 9 ellipse can touch, and no `powf` when the exponent
@@ -70,7 +70,7 @@ pub struct Footprint {
     spans: Vec<Span>,
     k: Vec<f32>,
     alpha: f32,
-    /// wsum <= 1e-8: the Python engine returns before compositing.
+    /// wsum <= 1e-8: nothing reaches the canvas, and the dab is neither composited nor recorded.
     pub skip: bool,
     y_min: usize,
     y_max: usize,
@@ -247,8 +247,8 @@ impl Canvas {
 
     /// Evaluate one dab: its kernel, and if `pickup` the wet paint under it read from `src`.
     ///
-    /// This is the first half of `Canvas.stamp` in `python/paintcode/canvas.py`, with the same float32
-    /// arithmetic per pixel (the geometry above it is float64, as in Python).
+    /// The first half of laying one dab: float32 arithmetic per pixel, with the geometry above it
+    /// in float64 (the split the numpy engine of 0.4 had, kept so the pixels stay the same).
     pub fn footprint(
         &self,
         d: &Dab,
@@ -269,7 +269,7 @@ impl Canvas {
         let n = gauss::hardness_exponent(d.hardness) as f32;
         let gaussian = spans == Spans::Ellipse && n == 1.0;
         let paper = (d.grain > 0.0).then(|| self.grain_field(d.grain_scale));
-        // (1.0 - grain) + grain * g, with the Python floats rounded to float32 as numpy does
+        // (1.0 - grain) + grain * g, with the float64 brush values rounded to float32 first
         let (g_keep, g_amt) = ((1.0 - d.grain) as f32, d.grain as f32);
 
         // rows and columns to visit
@@ -361,8 +361,8 @@ impl Canvas {
     }
 
     /// Lay footprints down in order, "over" compositing, each in its colour. Rows are split into
-    /// bands that run in parallel; within a pixel the order and the arithmetic are those of
-    /// `Canvas.stamp`, so the result does not depend on the number of threads.
+    /// bands that run in parallel; within a pixel the order and the arithmetic are those of a
+    /// one-dab-at-a-time engine, so the result does not depend on the number of threads.
     pub fn composite(&mut self, prints: &[(&Footprint, [f32; 3])]) {
         let w = self.width;
         self.img
@@ -395,7 +395,7 @@ impl Canvas {
             });
     }
 
-    /// Gaussian-weighted colour around (x, y), as `Canvas.sample`: loads a smudge brush.
+    /// Gaussian-weighted colour around (x, y): loads a smudge brush.
     pub fn sample(&self, x: f64, y: f64, r: f64) -> [f32; 3] {
         let e = ((1.5 * r).ceil() as i64).max(1);
         let (xi, yi) = (x.trunc() as i64, y.trunc() as i64);

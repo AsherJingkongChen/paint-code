@@ -15,7 +15,7 @@ pub struct Sample {
 
 type Row = [f64; 4];
 
-/// Length of a 2D offset in plain IEEE arithmetic, as `stroke._dist`.
+/// Length of a 2D offset in plain IEEE arithmetic (no `hypot`, whose rounding varies).
 #[inline]
 fn dist(dx: f64, dy: f64) -> f64 {
     (dx * dx + dy * dy).sqrt()
@@ -110,7 +110,7 @@ fn dense(a: &[Row], smooth: bool) -> Vec<Row> {
     out
 }
 
-/// Samples at the brush's own spacing, as `stroke.samples`.
+/// Samples at the brush's own spacing.
 pub fn samples(points: &[Row], brush: &Brush, smooth: bool) -> Vec<Sample> {
     let a = normalise(points);
     let single = |r: &Row| {

@@ -156,7 +156,7 @@ pub fn paint_stroke(
     chunks.push(start..plans.len());
 
     // Pickup reads the canvas as it was when the stroke began. With one chunk nothing has been
-    // composited yet, so the live canvas is that state; with more, keep a snapshot like Python.
+    // composited yet, so the live canvas is that state; with more, keep a snapshot of it.
     let snapshot = (pickup && chunks.len() > 1).then(|| {
         let b = plans.iter().filter_map(|p| canvas.bounds(&p.dab));
         let (x0, x1, y0, y1) = b.fold((usize::MAX, 0, usize::MAX, 0), |a, (x0, x1, y0, y1)| {

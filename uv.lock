@@ -272,34 +272,25 @@ wheels = [
 [[package]]
 name = "paintcode"
 source = { editable = "." }
-dependencies = [
+
+[package.dev-dependencies]
+dev = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
     { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "pillow", version = "12.3.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "pillow", version = "13.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "pytest" },
-]
-
-[package.dev-dependencies]
-dev = [
     { name = "pytest" },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "numpy", specifier = ">=1.24" },
-    { name = "pillow", specifier = ">=10" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7" },
-]
-provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=7" }]
+dev = [
+    { name = "numpy", specifier = ">=1.24" },
+    { name = "pillow", specifier = ">=10" },
+    { name = "pytest", specifier = ">=7" },
+]
 
 [[package]]
 name = "pillow"

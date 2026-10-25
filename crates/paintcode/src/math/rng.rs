@@ -3,7 +3,7 @@
 //! A draw is a pure function of a key such as (seed, stream, stroke, dab, slot), so editing one
 //! stroke cannot shift the jitter of another, and draws can happen in any order or in parallel.
 //! The mixer is the SplitMix64 finaliser; a key is folded in one part at a time,
-//! `h = mix(h ^ part)` from `h = 0`, with every part taken modulo 2^64 (as `python/paintcode/rng.py`).
+//! `h = mix(h ^ part)` from `h = 0`, with every part taken modulo 2^64.
 
 pub const JITTER: i64 = 1;
 pub const GRAIN: i64 = 2;
@@ -43,7 +43,8 @@ pub fn grid_value(prefix: u64, i: u64) -> f32 {
 mod tests {
     use super::*;
 
-    /// The same numbers are pinned in tests/test_engine.py; they are part of the format.
+    /// These numbers are part of the format: a scene renders the same in every version only
+    /// while they hold (the numpy engine of 0.4 pinned the same values).
     #[test]
     fn spec_is_pinned() {
         assert_eq!(key(&[24, 1, 0, 0, 0]), 0x45C2_76ED_BC63_8DF7);
