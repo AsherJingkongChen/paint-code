@@ -139,6 +139,7 @@ impl std::fmt::Debug for WetCanvas {
     }
 }
 
+/// The most rows a band of compositing takes.
 const BAND: usize = 16;
 
 /// Lay one row of a footprint, "over": eight pixels at a time, then the rest one by one, with
@@ -432,19 +433,33 @@ impl WetCanvas {
         (fp, pickup)
     }
 
-    /// Lay footprints down in order, "over" compositing, each in its colour. Rows are split into
-    /// bands that run in parallel; within a pixel the order and the arithmetic are those of a
-    /// one-dab-at-a-time engine, so the result does not depend on the number of threads.
+    /// Lay footprints down in order, "over" compositing, each in its colour. The rows the
+    /// footprints reach are split into bands that run in parallel, about four for each thread,
+    /// so a small petal keeps every thread busy too; within a pixel the order and the arithmetic
+    /// are those of a one-dab-at-a-time engine, so the result does not depend on the number of
+    /// threads.
     pub fn composite(&mut self, prints: &[(&Footprint<'_>, [f32; 3])]) {
         let w = self.width;
+        let laid = prints.iter().filter(|(fp, _)| !fp.skip);
+        let (top, bottom) = laid.fold((usize::MAX, 0), |(t, b), (fp, _)| {
+            (t.min(fp.y_min), b.max(fp.y_max))
+        });
+        if top >= bottom {
+            return;
+        }
+        let band = (bottom - top)
+            .div_ceil(4 * rayon::current_num_threads())
+            .clamp(1, BAND);
+        let rows = top * w..bottom * w;
         let [red, green, blue] = &mut self.planes;
-        red.par_chunks_mut(BAND * w)
-            .zip(green.par_chunks_mut(BAND * w))
-            .zip(blue.par_chunks_mut(BAND * w))
-            .zip(self.wet.par_chunks_mut(BAND * w))
+        red[rows.clone()]
+            .par_chunks_mut(band * w)
+            .zip(green[rows.clone()].par_chunks_mut(band * w))
+            .zip(blue[rows.clone()].par_chunks_mut(band * w))
+            .zip(self.wet[rows].par_chunks_mut(band * w))
             .enumerate()
-            .for_each(|(band, (((r, g), b), wet))| {
-                let (b0, b1) = (band * BAND, band * BAND + wet.len() / w);
+            .for_each(|(i, (((r, g), b), wet))| {
+                let (b0, b1) = (top + i * band, top + i * band + wet.len() / w);
                 for &(fp, col) in prints {
                     if fp.skip || fp.y_max <= b0 || fp.y_min >= b1 {
                         continue;
