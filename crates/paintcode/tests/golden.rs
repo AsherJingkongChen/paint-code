@@ -1,5 +1,5 @@
-//! The core against the numpy engine's frozen output (tests/golden, made by
-//! tests/golden/make.py at paintcode 0.4, the last version with that engine).
+//! The core against the numpy engine's frozen output (tests/golden, made at paintcode 0.4, the
+//! last version with that engine, by tests/golden/make.py, whose last version is at 02f2aea).
 //!
 //! Each case checks the 8-bit PNG (no value off by more than 1/255, and at most one value in
 //! 10,000 off at all: libm rounding can flip a value that sits on a half step, a real change

@@ -166,7 +166,7 @@ cargo test --release -p paintcode -- --include-ignored   # the engine: behaviour
 uv run pytest                                            # the Python face: arguments, files, errors
 ```
 
-`tests/golden/make.py` made the golden files with the numpy engine at 0.4; it does not run on 0.5, which no longer has that engine.
+The golden files were made with the numpy engine at 0.4 by `tests/golden/make.py`, which retired with that engine; `git show 02f2aea:tests/golden/make.py` has it. Since 0.6 the manifest and the flower files are kept by hand.
 
 ## Credits
 
