@@ -89,6 +89,7 @@ pub struct Source<'a> {
 
 /// The canvas while it is painted: float RGB that receives dabs, a wetness map, and the paper
 /// grain, at the size the dabs are laid (supersampled). Dried, it is the [`Canvas`].
+#[derive(Clone)]
 pub struct WetCanvas {
     pub width: usize,
     pub height: usize,
