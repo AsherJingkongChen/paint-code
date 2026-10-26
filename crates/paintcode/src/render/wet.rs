@@ -249,6 +249,8 @@ impl WetCanvas {
         let (s64, c64) = (d.theta.sin(), d.theta.cos());
         let (c, s) = (c64 as f32, s64 as f32);
         let (sx32, sy32, x32, y32) = (sx as f32, sy as f32, d.x as f32, d.y as f32);
+        // u = (dx c + dy s) / sx and v = (-dx s + dy c) / sy, with the divisions done once
+        let (ux, vx) = (c / sx32, -s / sy32);
         let n = gauss::hardness_exponent(d.hardness) as f32;
         let profile = self
             .profiles
@@ -284,6 +286,7 @@ impl WetCanvas {
         let mut under = [0f64; 3];
         for py in ry0..ry1 {
             let dy = (py as f32 + 0.5) - y32;
+            let (u0, v0) = (dy * s / sx32, dy * c / sy32);
             let (cx0, cx1) = match spans {
                 Spans::Square => (x0, x1),
                 Spans::Ellipse => match gauss::row_interval(quad, (py as f64 + 0.5) - d.y, q_pad) {
@@ -307,8 +310,8 @@ impl WetCanvas {
             });
             for px in cx0..cx1 {
                 let dx = (px as f32 + 0.5) - x32;
-                let u = (dx * c + dy * s) / sx32;
-                let v = (-dx * s + dy * c) / sy32;
+                let u = dx * ux + u0;
+                let v = dx * vx + v0;
                 let q = u * u + v * v;
                 let k32 = if q > CUTOFF_Q { 0.0 } else { profile.at(q) };
                 let k = match paper {
