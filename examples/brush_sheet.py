@@ -1,4 +1,4 @@
-"""Every preset drawing the same S-curve, pressure rising then falling."""
+"""Every brush drawing the same S-curve, pressure rising then falling."""
 import math
 import io
 from pathlib import Path

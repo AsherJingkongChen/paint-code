@@ -1,4 +1,4 @@
-//! The renderer: dabs in, pixels out. It knows nothing about strokes or brushes.
+//! The renderer: dabs in, pixels out. It knows nothing about petals or brushes.
 //!
 //! A [`Dab`] is one anisotropic 2D Gaussian with an opacity and a profile hardness. Painting a
 //! batch of dabs runs in two phases, both parallel:

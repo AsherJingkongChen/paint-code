@@ -95,11 +95,11 @@ where $(u, v)$ is the pixel offset rotated into the dab's frame and $h$ is hardn
 
 ### Sharpness
 
-A Gaussian is a low-pass filter, so a stroke made of Gaussians has soft edges by nature; hardness is the cure. A stroke of size 16 keeps a half-coverage width of 26 to 30 px from hardness 0 to 0.95, while its 10–90% edge narrows from about 14 px to 1 px. Hard brushes alias, so set `supersample=` to paint at N times the size and box-filter down; the dabs and the jitter stay the same, only the sampling improves.
+A Gaussian is a low-pass filter, so a petal made of Gaussians has soft edges by nature; hardness is the cure. A petal of size 16 keeps a half-coverage width of 26 to 30 px from hardness 0 to 0.95, while its 10–90% edge narrows from about 14 px to 1 px. Hard brushes alias, so set `supersample=` to paint at N times the size and box-filter down; the dabs and the jitter stay the same, only the sampling improves.
 
 ### As Gaussian splats
 
-`.coat.ply` writes one Gaussian per dab: position on the image plane (x right, y down, the longer side spanning $[-1, 1]$), scales $\log\sigma$ with a vanishing third axis, a quaternion for the dab angle about $z$, colour as the SH DC term, opacity as a logit. Paint order becomes depth: the first dab is farthest and the last is nearest to a camera on the $-z$ side, so depth-sorted splatting composites them in the order they were painted. The stack is only 0.05 deep, so this holds facing the plane: turned away, the splats sort by where they sit instead of when they were painted, and the wide early sky strokes drift in front of the flower. The files open in [SuperSplat](https://superspl.at/editor) through File > Import. After the 3DGS fields come `pc_*` fields that keep each dab exactly (position, sigmas, angle, opacity, hardness and grain as doubles, its colour as floats), and a `paintcode` header comment keeps the size, supersample, seed and background, so `load_coat` gives back a coat that paints the same canvas bit for bit.
+`.coat.ply` writes one Gaussian per dab: position on the image plane (x right, y down, the longer side spanning $[-1, 1]$), scales $\log\sigma$ with a vanishing third axis, a quaternion for the dab angle about $z$, colour as the SH DC term, opacity as a logit. Paint order becomes depth: the first dab is farthest and the last is nearest to a camera on the $-z$ side, so depth-sorted splatting composites them in the order they were painted. The stack is only 0.05 deep, so this holds facing the plane: turned away, the splats sort by where they sit instead of when they were painted, and the wide early sky petals drift in front of the flower. The files open in [SuperSplat](https://superspl.at/editor) through File > Import. After the 3DGS fields come `pc_*` fields that keep each dab exactly (position, sigmas, angle, opacity, hardness and grain as doubles, its colour as floats), and a `paintcode` header comment keeps the size, supersample, seed and background, so `load_coat` gives back a coat that paints the same canvas bit for bit.
 
 The tests carry a separate, plain rasteriser that reads only the 3DGS fields of the PLY. For a painting made with hardness 0 and no grain it reproduces the canvas to within 2/255 (`a_soft_painting_round_trips_through_the_ply` in `crates/paintcode/src/tests.rs`). The 3DGS kernel has no hardness or grain, so other paintings come back softer:
 
@@ -111,7 +111,7 @@ The tests carry a separate, plain rasteriser that reads only the 3DGS fields of 
 |---|---|
 | `size` | visible radius in px at full pressure; the same size looks the same at every hardness |
 | `aspect` | minor / major axis ratio |
-| `angle` | `null`: the major axis lies across the stroke and turns with it; a number: fixed nib angle in degrees |
+| `angle` | `null`: the major axis lies across the petal and turns with it; a number: fixed nib angle in degrees |
 | `hardness` | profile exponent $1/(1-h)$: 0 is a Gaussian, 0.9 is nearly a hard ellipse |
 | `flow` | opacity built up at the default spacing |
 | `spacing` | dab distance as a fraction of the footprint; flow is normalised to it, so this only trades speed for smoothness |

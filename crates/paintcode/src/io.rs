@@ -200,9 +200,9 @@ const EXACT_FIELDS: [&str; 12] = [
 const EXACT_DOUBLES: usize = 9;
 /// Zeroth-order spherical harmonic.
 const C0: f64 = 0.28209479177387814;
-/// Total depth the paint order is spread over, in scene units.
+/// Total depth the paint order is spread over, in world units.
 const DEPTH_SPAN: f64 = 0.05;
-/// Sigma of the flat axis, in scene units.
+/// Sigma of the flat axis, in world units.
 const THIN: f64 = 1e-5;
 /// The header comment that carries what a coat needs besides its dabs.
 const COAT_COMMENT: &str = "paintcode ";
@@ -223,7 +223,7 @@ const COAT_COMMENT: &str = "paintcode ";
 pub fn encode_coat(coat: &Coat) -> Vec<u8> {
     let (width, height, ss) = (coat.width, coat.height, coat.supersample.max(1) as f64);
     let n = coat.dabs.len();
-    let s = 2.0 / width.max(height) as f64; // output px -> scene units
+    let s = 2.0 / width.max(height) as f64; // output px -> world units
     let bg = coat.background;
     let meta = serde_json::json!({
         "width": width,

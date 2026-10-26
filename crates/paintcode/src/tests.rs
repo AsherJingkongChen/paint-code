@@ -58,7 +58,7 @@ fn check(name: &str) {
             case["splats"].as_u64().unwrap(),
             "{name}: splat count"
         );
-        let unit = 2.0 / w.max(h) as f32; // px -> scene units
+        let unit = 2.0 / w.max(h) as f32; // px -> world units
         for field in PLY_FIELDS {
             let (a, b) = (got.column(field).unwrap(), want.column(field).unwrap());
             // opacity is a logit, steep near the clamp: compare it as alpha
