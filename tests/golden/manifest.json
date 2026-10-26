@@ -54,8 +54,7 @@
   "width": 120,
   "height": 90,
   "float": "soft.u16.gz",
-  "ply": "soft.ply",
-  "splats": 538
+  "coat": "soft.coat.ply"
  },
  "soft_ss2": {
   "flower": "tests/golden/soft.flower.json",
@@ -65,7 +64,6 @@
   "width": 120,
   "height": 90,
   "float": "soft_ss2.u16.gz",
-  "ply": "soft_ss2.ply",
-  "splats": 579
+  "coat": "soft_ss2.coat.ply"
  }
 }

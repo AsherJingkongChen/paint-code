@@ -5,7 +5,8 @@
 //! 10,000 off at all: libm rounding can flip a value that sits on a half step, a real change
 //! moves many), the float canvas within 1e-5 plus half a 16-bit step for the small cases, and
 //! the coat of every case, written as a PLY and read back, which must lay the same canvas again bit
-//! for bit. The 3DGS fields of the PLY cases are checked in src/tests.rs, which can read them.
+//! for bit. The soft cases also keep their coat file, written at 0.6 after its 3DGS fields were
+//! checked against the PLY the numpy engine wrote; it must come out byte for byte the same.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -95,6 +96,21 @@ fn check(name: &str) {
         again.rgb == canvas.rgb,
         "{name}: the coat lays another canvas"
     );
+
+    // the coat file frozen at 0.6, where it was kept: the same bytes, 3DGS fields and all
+    if let Some(f) = case.get("coat").and_then(Value::as_str) {
+        let want = std::fs::read(golden(f)).unwrap();
+        if ply != want {
+            let want = decode_coat(&want).unwrap();
+            let first = coat.dabs.iter().zip(&want.dabs).position(|(a, b)| a != b);
+            panic!(
+                "{name}: the coat is not {f} ({} dabs against {}, first different: {:?})",
+                coat.dabs.len(),
+                want.dabs.len(),
+                first.map(|i| (i, coat.dabs[i], want.dabs[i]))
+            );
+        }
+    }
 }
 
 #[test]
@@ -120,7 +136,8 @@ fn soft() {
 
 #[test]
 fn soft_supersampled() {
-    // the 3DGS fields are in the pixels of the finished canvas, not the supersampled one
+    // the 3DGS fields are in the pixels of the finished canvas, not the supersampled one, as
+    // they were at 0.4
     check("soft_ss2");
 }
 

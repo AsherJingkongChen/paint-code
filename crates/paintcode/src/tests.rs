@@ -1,94 +1,17 @@
 //! The 3DGS half of a coat. The engine never reads those 17 fields back (decode_coat reads the
 //! exact `pc_*` fields), so nothing in it would break if they were wrong; only a splat viewer
-//! would show it. These tests read them with io's own PLY reader, which is why they live inside
-//! the crate.
+//! would show it. This test is that viewer: it reads them with io's own PLY reader, which is why
+//! it lives inside the crate. tests/golden.rs keeps the bytes from drifting.
 
 use std::path::{Path, PathBuf};
 
-use serde_json::{Value, json};
-
-use crate::io::{self, PLY_FIELDS, decode_ply};
+use crate::io::{self, decode_ply};
 use crate::{Flower, RenderOpts, flower_to_coat, paint_flower};
 
 fn golden(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/golden")
         .join(name)
-}
-
-fn max_gap(a: &[f64], b: &[f64], f: impl Fn(f32) -> f32) -> f32 {
-    a.iter()
-        .zip(b)
-        .map(|(x, y)| (f(*x as f32) - f(*y as f32)).abs())
-        .fold(0f32, f32::max)
-}
-
-/// The PLY of a golden case against the one the numpy engine wrote at 0.4: the same header, and
-/// every field as close as that engine's rounding allows (it rounded x, y, sx, sy to 3 decimals
-/// and theta, colour, alpha to 4 before writing; the core writes them unrounded).
-fn check(name: &str) {
-    let text = std::fs::read_to_string(golden("manifest.json")).unwrap();
-    let case = &serde_json::from_str::<Value>(&text).unwrap()[name];
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .join(case["flower"].as_str().unwrap());
-    let flower = Flower::from_json(&std::fs::read_to_string(path).unwrap()).unwrap();
-    let opts = RenderOpts {
-        supersample: case["options"]["supersample"].as_i64().unwrap_or(1),
-        ..RenderOpts::default()
-    };
-    let coat = flower_to_coat(&flower, &opts).unwrap();
-    let ply = io::encode_coat(&coat);
-    let (w, h) = (coat.width, coat.height);
-    {
-        let f = case["ply"].as_str().unwrap();
-        let want = decode_ply(&std::fs::read(golden(f)).unwrap()).unwrap();
-        let got = decode_ply(&ply).unwrap();
-        // the exact fields and the paintcode comment come after what the numpy engine wrote
-        assert_eq!(got.names[..PLY_FIELDS.len()], want.names);
-        let comments: Vec<_> = got
-            .comments
-            .iter()
-            .filter(|c| !c.starts_with("paintcode "))
-            .cloned()
-            .collect();
-        assert_eq!(comments, want.comments);
-        assert_eq!(
-            coat.dabs.len() as u64,
-            case["splats"].as_u64().unwrap(),
-            "{name}: splat count"
-        );
-        let unit = 2.0 / w.max(h) as f32; // px -> world units
-        for field in PLY_FIELDS {
-            let (a, b) = (got.column(field).unwrap(), want.column(field).unwrap());
-            // opacity is a logit, steep near the clamp: compare it as alpha
-            let sigmoid = |v: f32| 1.0 / (1.0 + (-v).exp());
-            let (tol, gap): (f32, f32) = match field {
-                "x" | "y" => (5e-4 * unit * 1.01, max_gap(a, b, |v| v)),
-                // ln(sx * unit) with sx rounded to 3 decimals, and sx at least 0.5 px
-                "scale_0" | "scale_1" => (1.01e-3, max_gap(a, b, |v| v)),
-                "f_dc_0" | "f_dc_1" | "f_dc_2" => (5e-5 / 0.2820948 * 1.01, max_gap(a, b, |v| v)),
-                "rot_0" | "rot_1" | "rot_2" | "rot_3" => (2.6e-5, max_gap(a, b, |v| v)),
-                "opacity" => (5.1e-5, max_gap(a, b, sigmoid)),
-                // z, the normals and the flat axis are computed the same way, unrounded
-                _ => (1e-6, max_gap(a, b, |v| v)),
-            };
-            assert!(
-                gap <= tol,
-                "{name}: PLY field {field} differs by {gap} (at most {tol})"
-            );
-        }
-    }
-}
-
-#[test]
-fn the_ply_is_the_one_the_numpy_engine_wrote() {
-    check("soft");
-}
-
-#[test]
-fn the_ply_of_a_supersampled_coat_is_in_the_pixels_of_the_canvas() {
-    check("soft_ss2");
 }
 
 /// A deliberately plain 3DGS-style rasteriser that reads only the PLY: builds each Gaussian's 3D
@@ -179,12 +102,8 @@ fn render_splats(ply: &[u8], background: [f32; 3]) -> (usize, usize, Vec<f32>) {
 
 #[test]
 fn a_soft_painting_round_trips_through_the_ply() {
-    let v = json!({"width": 120, "height": 90, "background": "#203040", "seed": 5, "petals": [
-            {"brush": "round", "hardness": 0, "color": "#e0a040", "points": [[10, 20, 0.2], [60, 70, 1], [110, 30, 0.4]]},
-            {"brush": "filbert", "hardness": 0, "grain": 0, "color": "#40a0e0", "points": [[10, 80], [110, 10]]},
-            {"brush": "ink", "hardness": 0, "color": "#ffffff", "points": [[20, 45, 0.3], [100, 50, 1]]},
-            {"brush": "blender", "color": null, "points": [[30, 30], [90, 60]]}]});
-    let flower = Flower::from_value(&v).unwrap();
+    let text = std::fs::read_to_string(golden("soft.flower.json")).unwrap();
+    let flower = Flower::from_json(&text).unwrap();
     let c = paint_flower(&flower, &RenderOpts::default()).unwrap();
     let bg = flower.background;
     let ply = io::encode_coat(&flower_to_coat(&flower, &RenderOpts::default()).unwrap());
