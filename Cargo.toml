@@ -3,10 +3,10 @@ resolver = "3"
 members = ["crates/paintcode", "bindings/python"]
 
 [workspace.package]
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
-# the highest any dependency needs (zip 9); CI checks it
-rust-version = "1.88"
+# pyo3 0.30 and edition 2024 both need 1.85; CI checks it
+rust-version = "1.85"
 license = "BSD-3-Clause"
 repository = "https://github.com/AsherJingkongChen/paintcode"
 
@@ -15,7 +15,6 @@ paintcode = { path = "crates/paintcode" }
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 rayon = "1"
 png = "0.18"
-zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
 flate2 = "1"
 
 # opt-level "s" renders as fast as 3 and is 38% smaller (measured in the commit that set it).

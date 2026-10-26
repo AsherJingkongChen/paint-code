@@ -1,7 +1,7 @@
 //! Counter-based random numbers: every draw is a hash of where it is used.
 //!
-//! A draw is a pure function of a key such as (seed, stream, stroke, dab, slot), so editing one
-//! stroke cannot shift the jitter of another, and draws can happen in any order or in parallel.
+//! A draw is a pure function of a key such as (seed, stream, petal, dab, slot), so editing one
+//! petal cannot shift the jitter of another, and draws can happen in any order or in parallel.
 //! The mixer is the SplitMix64 finaliser; a key is folded in one part at a time,
 //! `h = mix(h ^ part)` from `h = 0`, with every part taken modulo 2^64.
 
@@ -43,7 +43,7 @@ pub fn grid_value(prefix: u64, i: u64) -> f32 {
 mod tests {
     use super::*;
 
-    /// These numbers are part of the format: a scene renders the same in every version only
+    /// These numbers are part of the format: a flower renders the same in every version only
     /// while they hold (the numpy engine of 0.4 pinned the same values).
     #[test]
     fn spec_is_pinned() {

@@ -1,15 +1,15 @@
+use crate::flower::{Brush, Color};
 use crate::math::rng;
-use crate::render::{Canvas, Dab, Footprint, Laid, Pickup, Spans};
-use crate::scene::{Brush, Color};
+use crate::render::{Dab, Footprint, Pickup, Spans, WetCanvas};
 use rayon::prelude::*;
 
 use super::path::{Sample, samples};
 
-/// Knobs that change how fast a stroke is painted, never what it looks like.
+/// Knobs that change how fast a petal is painted, never what it looks like.
 #[derive(Debug, Clone, Copy)]
 pub struct Options {
     pub spans: Spans,
-    /// Upper bound on kernel values held at once (f64 each); longer strokes go in chunks.
+    /// Upper bound on kernel values held at once (f32 each); longer petals go in chunks.
     pub budget: usize,
 }
 
@@ -80,6 +80,8 @@ fn plan(seed: i64, brush: &Brush, sid: i64, path: &[Sample]) -> Vec<Plan> {
             hardness: brush.hardness,
             grain: brush.grain,
             grain_scale: brush.grain_scale,
+            // the colour is known only when the paint is carried along, below
+            rgb: [0.0; 3],
         };
         out.push(Plan {
             dab,
@@ -89,7 +91,7 @@ fn plan(seed: i64, brush: &Brush, sid: i64, path: &[Sample]) -> Vec<Plan> {
     out
 }
 
-/// What one stroke left behind.
+/// What one petal left behind.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Painted {
     /// Dabs laid out along the path (some may fall off the canvas).
@@ -98,17 +100,17 @@ pub struct Painted {
     pub carried: [f32; 3],
 }
 
-/// Lay one stroke onto the canvas.
-pub fn paint_stroke(
-    canvas: &mut Canvas,
+/// Lay one petal onto the canvas.
+pub fn paint_petal(
+    canvas: &mut WetCanvas,
     brush: &Brush,
     color: &Color,
     points: &[[f64; 4]],
     smooth: bool,
     opts: Options,
 ) -> Painted {
-    let sid = canvas.strokes;
-    canvas.strokes += 1;
+    let sid = canvas.petals;
+    canvas.petals += 1;
     let path = samples(points, brush, smooth);
     let plans = plan(canvas.seed, brush, sid, &path);
     if plans.is_empty() {
@@ -147,7 +149,7 @@ pub fn paint_stroke(
     }
     chunks.push(start..plans.len());
 
-    // Pickup reads the canvas as it was when the stroke began. With one chunk nothing has been
+    // Pickup reads the canvas as it was when the petal began. With one chunk nothing has been
     // composited yet, so the live canvas is that state; with more, keep a snapshot of it.
     let snapshot = (pickup && chunks.len() > 1).then(|| {
         let b = plans.iter().filter_map(|p| canvas.bounds(&p.dab));
@@ -159,11 +161,11 @@ pub fn paint_stroke(
 
     for range in chunks {
         let src = match &snapshot {
-            Some((img, wet, origin)) => Some(Canvas::view(img, wet, *origin)),
+            Some((rgb, wet, origin)) => Some(WetCanvas::view(rgb, wet, *origin)),
             None if pickup => Some(canvas.live()),
             None => None,
         };
-        let cv: &Canvas = canvas;
+        let cv: &WetCanvas = canvas;
         let evaluated: Vec<(Footprint, Option<Pickup>)> = plans[range.clone()]
             .par_iter()
             .map(|p| cv.footprint(&p.dab, opts.spans, src))
@@ -183,14 +185,15 @@ pub fn paint_stroke(
         let prints: Vec<(&Footprint, [f32; 3])> =
             evaluated.iter().map(|(f, _)| f).zip(colours).collect();
         canvas.composite(&prints);
-        if let Some(laid) = canvas.laid.as_mut() {
+        if let Some(dabs) = canvas.dabs.as_mut() {
             // only the dabs that reached the canvas, as they were laid
             for (plan, (fp, rgb)) in plans[range].iter().zip(&prints) {
                 if !fp.skip {
                     let mut dab = plan.dab;
                     dab.sx = dab.sx.max(0.5);
                     dab.sy = dab.sy.max(0.5);
-                    laid.push(Laid { dab, rgb: *rgb });
+                    dab.rgb = *rgb;
+                    dabs.push(dab);
                 }
             }
         }

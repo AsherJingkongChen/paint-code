@@ -1,17 +1,17 @@
-//! The bones: what a painting is made of, as plain data.
+//! The bones: a flower, the JSON a painter writes, as plain data.
 //!
-//! A [`Scene`] is the JSON scene of the README: canvas settings, named brushes and an
-//! ordered list of strokes. Nothing here paints; it only parses and validates.
+//! A [`Flower`] is a size, a background, a seed, named brushes and an ordered list of petals
+//! (strokes of any shape). Nothing here paints; it only parses and validates.
 
 mod brush;
 mod color;
 mod parse;
 
-pub use brush::{Brush, PRESET_NAMES, preset};
+pub use brush::{BRUSH_NAMES, Brush, brush};
 pub use color::parse_color;
-pub use parse::{CanvasCfg, Color, POINT_MARGIN, Scene, Stroke};
+pub use parse::{Color, Flower, POINT_MARGIN, Petal};
 
-/// A message for a person or a model reading a bad scene.
+/// A message for a person or a model reading a bad flower.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Error(pub String);
 

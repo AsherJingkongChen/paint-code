@@ -4,16 +4,7 @@ use serde_json::{Map, Value};
 
 use super::{Brush, Error, Result, err, parse_color};
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct CanvasCfg {
-    pub width: usize,
-    pub height: usize,
-    pub background: [f32; 3],
-    pub seed: i64,
-    pub supersample: i64,
-}
-
-/// What a stroke paints with.
+/// What a petal paints with.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Color {
     Rgb([f32; 3]),
@@ -21,9 +12,9 @@ pub enum Color {
     Smudge,
 }
 
-/// One stroke, with its brush already resolved and its overrides applied.
+/// One petal: a stroke of any shape, with its brush already resolved and its overrides applied.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Stroke {
+pub struct Petal {
     pub brush: Brush,
     pub color: Color,
     /// Rows of (x, y, pressure, tilt); missing pressure is 1, missing tilt is 0.
@@ -31,34 +22,50 @@ pub struct Stroke {
     pub smooth: bool,
 }
 
+/// A flower: what a painter writes. A size, a background, a seed for every random number, named
+/// brushes, and the petals in the order they are laid down.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Scene {
-    pub canvas: CanvasCfg,
-    pub strokes: Vec<Stroke>,
+pub struct Flower {
+    /// The flower as it was written, keys in their order: what a file keeps.
+    pub source: Value,
+    pub width: usize,
+    pub height: usize,
+    pub background: [f32; 3],
+    pub seed: i64,
+    pub petals: Vec<Petal>,
 }
 
-const STROKE_KEYS: [&str; 4] = ["brush", "color", "points", "smooth"];
+/// The keys a flower may have. Anything else is a mistake worth naming.
+const FLOWER_KEYS: [&str; 6] = ["width", "height", "background", "seed", "brushes", "petals"];
+const PETAL_KEYS: [&str; 4] = ["brush", "color", "points", "smooth"];
 
-impl Scene {
-    pub fn from_json(text: &str) -> Result<Scene> {
+impl Flower {
+    pub fn from_json(text: &str) -> Result<Flower> {
         let v: Value =
-            serde_json::from_str(text).map_err(|e| Error(format!("scene is not JSON: {e}")))?;
-        Scene::from_value(&v)
+            serde_json::from_str(text).map_err(|e| Error(format!("flower is not JSON: {e}")))?;
+        Flower::from_value(&v)
     }
 
-    pub fn from_value(v: &Value) -> Result<Scene> {
-        let empty = Map::new();
+    pub fn from_value(v: &Value) -> Result<Flower> {
         let root = v
             .as_object()
-            .ok_or_else(|| Error("a scene is a JSON object".into()))?;
-        let cfg = root
-            .get("canvas")
-            .and_then(Value::as_object)
-            .unwrap_or(&empty);
-        // canvas numbers are whole: a size of 640.7 or a seed of 1.5 is a mistake to report,
-        // not a value to round quietly
+            .ok_or_else(|| Error("a flower is a JSON object".into()))?;
+        for k in root.keys() {
+            if !FLOWER_KEYS.contains(&k.as_str()) {
+                return err(match k.as_str() {
+                    "canvas" => "the \"canvas\" section is gone: width, height, background and \
+                                 seed sit at the top of the flower, and supersample is an option \
+                                 of the render"
+                        .to_string(),
+                    "strokes" => "\"strokes\" are called \"petals\" now".to_string(),
+                    other => format!("unknown key {other:?}; a flower has {FLOWER_KEYS:?}"),
+                });
+            }
+        }
+        // whole numbers: a size of 640.7 or a seed of 1.5 is a mistake to report, not a value to
+        // round quietly
         let int = |k: &str, d: i64, min: i64| -> Result<i64> {
-            let Some(v) = cfg.get(k) else { return Ok(d) };
+            let Some(v) = root.get(k) else { return Ok(d) };
             let n = v
                 .as_i64()
                 // a seed may use all 64 bits; it is hashed as a u64
@@ -68,23 +75,19 @@ impl Scene {
                         .filter(|f| f.fract() == 0.0 && f.abs() < 9e15)
                         .map(|f| f as i64)
                 })
-                .ok_or_else(|| Error(format!("canvas.{k} must be a whole number, got {v}")))?;
+                .ok_or_else(|| Error(format!("{k} must be a whole number, got {v}")))?;
             if n < min {
-                return Err(Error(format!("canvas.{k} must be at least {min}, got {v}")));
+                return Err(Error(format!("{k} must be at least {min}, got {v}")));
             }
             Ok(n)
         };
-        let canvas = CanvasCfg {
-            width: int("width", 800, 1)? as usize,
-            height: int("height", 600, 1)? as usize,
-            background: match cfg.get("background") {
-                None => [1.0, 1.0, 1.0],
-                Some(c) => parse_color(c)?,
-            },
-            seed: int("seed", 0, i64::MIN)?,
-            // checked where it is used: a render may override it
-            supersample: int("supersample", 1, i64::MIN)?,
+        let width = int("width", 800, 1)? as usize;
+        let height = int("height", 600, 1)? as usize;
+        let background = match root.get("background") {
+            None => [1.0, 1.0, 1.0],
+            Some(c) => parse_color(c)?,
         };
+        let seed = int("seed", 0, i64::MIN)?;
 
         let mut named: HashMap<&str, Brush> = HashMap::new();
         if let Some(bs) = root.get("brushes").and_then(Value::as_object) {
@@ -96,27 +99,34 @@ impl Scene {
             }
         }
 
-        let mut strokes = Vec::new();
+        let mut petals = Vec::new();
         for (idx, s) in root
-            .get("strokes")
+            .get("petals")
             .and_then(Value::as_array)
             .map(|a| a.as_slice())
             .unwrap_or(&[])
             .iter()
             .enumerate()
         {
-            strokes.push(parse_stroke(s, &named).map_err(|e| Error(format!("stroke {idx}: {e}")))?);
+            petals.push(parse_petal(s, &named).map_err(|e| Error(format!("petal {idx}: {e}")))?);
         }
-        Ok(Scene { canvas, strokes })
+        Ok(Flower {
+            source: v.clone(),
+            width,
+            height,
+            background,
+            seed,
+            petals,
+        })
     }
 }
 
-/// How far outside the canvas a control point may lie, in canvas sizes. Strokes may start off
-/// the canvas, but the path is walked a pixel at a time, so a point a million pixels away (a typo
-/// in a coordinate) would take seconds and gigabytes before anything is painted.
+/// How far outside the canvas a control point may lie, in canvas sizes. Petals may start off the
+/// canvas, but the path is walked a pixel at a time, so a point a million pixels away (a typo in
+/// a coordinate) would take seconds and gigabytes before anything is painted.
 pub const POINT_MARGIN: f64 = 16.0;
 
-impl Stroke {
+impl Petal {
     /// The first control point more than [`POINT_MARGIN`] canvas sizes outside a `width` x
     /// `height` canvas, if there is one.
     pub fn far_point(&self, width: usize, height: usize) -> Option<[f64; 2]> {
@@ -129,10 +139,10 @@ impl Stroke {
     }
 }
 
-fn parse_stroke(s: &Value, named: &HashMap<&str, Brush>) -> Result<Stroke> {
+fn parse_petal(s: &Value, named: &HashMap<&str, Brush>) -> Result<Petal> {
     let s = s
         .as_object()
-        .ok_or_else(|| Error("a stroke is a JSON object".into()))?;
+        .ok_or_else(|| Error("a petal is a JSON object".into()))?;
     let round = Value::String("round".into());
     let r = s.get("brush").unwrap_or(&round);
     let mut brush = match r {
@@ -141,7 +151,7 @@ fn parse_stroke(s: &Value, named: &HashMap<&str, Brush>) -> Result<Stroke> {
     };
     let overrides: Map<String, Value> = s
         .iter()
-        .filter(|(k, _)| !STROKE_KEYS.contains(&k.as_str()))
+        .filter(|(k, _)| !PETAL_KEYS.contains(&k.as_str()))
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
     if !overrides.is_empty() {
@@ -155,7 +165,7 @@ fn parse_stroke(s: &Value, named: &HashMap<&str, Brush>) -> Result<Stroke> {
     let pts = s
         .get("points")
         .and_then(Value::as_array)
-        .ok_or_else(|| Error("stroke has no points".into()))?;
+        .ok_or_else(|| Error("petal has no points".into()))?;
     let mut points = Vec::with_capacity(pts.len());
     for pt in pts {
         let a = pt
@@ -175,7 +185,7 @@ fn parse_stroke(s: &Value, named: &HashMap<&str, Brush>) -> Result<Stroke> {
         points.push(row);
     }
     if points.is_empty() {
-        return err("stroke has no points");
+        return err("petal has no points");
     }
     let smooth = match s.get("smooth") {
         None => true,
@@ -183,7 +193,7 @@ fn parse_stroke(s: &Value, named: &HashMap<&str, Brush>) -> Result<Stroke> {
             .as_bool()
             .ok_or_else(|| Error(format!("smooth must be true or false, got {v}")))?,
     };
-    Ok(Stroke {
+    Ok(Petal {
         brush,
         color,
         points,

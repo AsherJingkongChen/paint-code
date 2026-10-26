@@ -6,10 +6,10 @@ use std::path::Path;
 
 const ALLOWED: [(&str, &[&str]); 5] = [
     ("math", &[]),
-    ("scene", &["math"]),
+    ("flower", &["math"]),
     ("render", &["math"]),
-    ("stroke", &["math", "scene", "render"]),
-    ("io", &["render"]),
+    ("petal", &["math", "flower", "render"]),
+    ("io", &["flower", "render"]),
 ];
 
 fn sources(m: &str, src: &Path) -> Vec<String> {

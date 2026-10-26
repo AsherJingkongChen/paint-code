@@ -1,6 +1,6 @@
 //! Control points to an evenly spaced row of samples along the arc length.
 
-use crate::scene::Brush;
+use crate::flower::Brush;
 
 /// One place a dab goes: position, pressure, tilt, direction of travel, distance travelled.
 #[derive(Debug, Clone, Copy, PartialEq)]
