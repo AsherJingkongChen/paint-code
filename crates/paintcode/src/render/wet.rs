@@ -368,14 +368,15 @@ impl WetCanvas {
             });
     }
 
-    /// Gaussian-weighted colour around (x, y): loads a smudge brush.
-    pub fn sample(&self, x: f64, y: f64, r: f64) -> [f32; 3] {
+    /// Gaussian-weighted colour around (x, y): loads a smudge brush. None when the window of
+    /// radius `1.5 r` around the point holds no pixel of the canvas.
+    pub fn sample(&self, x: f64, y: f64, r: f64) -> Option<[f32; 3]> {
         let e = ((1.5 * r).ceil() as i64).max(1);
         let (xi, yi) = (x.trunc() as i64, y.trunc() as i64);
         let (x0, x1) = ((xi - e).max(0), (xi + e + 1).min(self.width as i64));
         let (y0, y1) = ((yi - e).max(0), (yi + e + 1).min(self.height as i64));
         if x0 >= x1 || y0 >= y1 {
-            return [0.0; 3];
+            return None;
         }
         let var = (r / 2.0).powi(2).max(0.25);
         let (mut acc, mut ksum) = ([0f64; 3], 0f64);
@@ -391,7 +392,7 @@ impl WetCanvas {
                 }
             }
         }
-        acc.map(|v| (v / ksum) as f32)
+        Some(acc.map(|v| (v / ksum) as f32))
     }
 
     /// Box-filter down by an integer factor (exact area averaging).

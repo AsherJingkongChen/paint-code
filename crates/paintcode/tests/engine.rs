@@ -222,6 +222,24 @@ fn a_smudge_starts_with_the_colour_under_it() {
 }
 
 #[test]
+fn a_smudge_from_off_the_canvas_starts_with_the_colour_where_it_enters() {
+    let mut c = blank(100, 40, "#ffffff");
+    for y in 0..40 {
+        for x in 0..50 {
+            c.rgb[(y * 100 + x) * 3..(y * 100 + x) * 3 + 3].copy_from_slice(&[1.0, 0.0, 0.0]);
+        }
+    }
+    petal(
+        &mut c,
+        &brush("blender").unwrap(),
+        Color::Smudge,
+        &row(&[[-60., 20.], [80., 20.]]),
+    );
+    let px = &c.rgb[(20 * 100 + 30) * 3..(20 * 100 + 30) * 3 + 3];
+    assert!(px[0] > 0.9, "the brush came in black: {px:?}");
+}
+
+#[test]
 fn hardness_sharpens_the_edge() {
     let edge = |h: f64| {
         let mut c = blank(200, 60, "#000000");

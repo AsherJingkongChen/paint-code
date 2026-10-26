@@ -124,8 +124,19 @@ pub fn paint_petal(
     }
     let mut carried: [f32; 3] = match color {
         Color::Rgb(c) => *c,
-        // a smudge loads the brush with what is under the first sample, before any jitter
-        Color::Smudge => canvas.sample(path[0].x, path[0].y, brush.radius(path[0].p)),
+        // a smudge loads the brush with what is under it where it first meets the canvas,
+        // before any jitter; a path that never meets it lays nothing there is to see, so it
+        // takes the nearest edge
+        Color::Smudge => path
+            .iter()
+            .find_map(|s| canvas.sample(s.x, s.y, brush.radius(s.p)))
+            .or_else(|| {
+                let s = &path[0];
+                let x = s.x.clamp(0.0, canvas.width as f64 - 0.5);
+                let y = s.y.clamp(0.0, canvas.height as f64 - 0.5);
+                canvas.sample(x, y, brush.radius(s.p))
+            })
+            .expect("a point on the canvas has a pixel under it"),
     };
     let pickup = brush.pickup > 0.0;
 
