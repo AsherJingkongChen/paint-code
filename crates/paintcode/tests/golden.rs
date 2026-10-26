@@ -114,14 +114,14 @@ fn features_supersampled() {
 }
 
 #[test]
-fn ply_export() {
-    check("ply_scene");
+fn soft() {
+    check("soft");
 }
 
 #[test]
-fn ply_export_supersampled() {
+fn soft_supersampled() {
     // the 3DGS fields are in the pixels of the finished canvas, not the supersampled one
-    check("ply_scene_ss2");
+    check("soft_ss2");
 }
 
 #[test]

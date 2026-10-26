@@ -48,27 +48,24 @@
   "height": 45,
   "float": "features_half_ss2.u16.gz"
  },
- "ply_scene": {
-  "flower": "tests/golden/ply_scene.flower.json",
-  "options": {
-   "ply": true
-  },
+ "soft": {
+  "flower": "tests/golden/soft.flower.json",
+  "options": {},
   "width": 120,
   "height": 90,
-  "float": "ply_scene.u16.gz",
-  "ply": "ply_scene.ply",
+  "float": "soft.u16.gz",
+  "ply": "soft.ply",
   "splats": 538
  },
- "ply_scene_ss2": {
-  "flower": "tests/golden/ply_scene.flower.json",
+ "soft_ss2": {
+  "flower": "tests/golden/soft.flower.json",
   "options": {
-   "ply": true,
    "supersample": 2
   },
   "width": 120,
   "height": 90,
-  "float": "ply_scene_ss2.u16.gz",
-  "ply": "ply_scene_ss2.ply",
+  "float": "soft_ss2.u16.gz",
+  "ply": "soft_ss2.ply",
   "splats": 579
  }
 }

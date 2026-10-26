@@ -83,12 +83,12 @@ fn check(name: &str) {
 
 #[test]
 fn the_ply_is_the_one_the_numpy_engine_wrote() {
-    check("ply_scene");
+    check("soft");
 }
 
 #[test]
 fn the_ply_of_a_supersampled_coat_is_in_the_pixels_of_the_canvas() {
-    check("ply_scene_ss2");
+    check("soft_ss2");
 }
 
 /// A deliberately plain 3DGS-style rasteriser that reads only the PLY: builds each Gaussian's 3D
