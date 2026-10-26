@@ -147,13 +147,14 @@ Up to 0.4 a numpy engine in this package was the reference, and the core was che
 
 A petal is painted in two parallel phases: every dab's kernel and the wet paint under it are evaluated independently (pickup reads the canvas as it was when the petal began), then the dabs are composited in order, one band of rows per thread. The fast path also skips the parts of each dab's square that lie outside its $q \le 9$ ellipse. None of this changes a bit: the tests render with the reference path (whole squares, `powf` everywhere, one thread) and require identical output.
 
-kiku, 640², supersample 2, on a 2-core VM:
+kiku, 640², supersample 2 (87,110 dabs), from `cargo bench` on an M2 Pro:
 
-| engine | time |
-|---|---|
-| numpy (0.4) | 52 s |
-| Rust, 1 thread | 7.0 s |
-| Rust, 2 threads | 3.5 s |
+| threads | time | dabs per second |
+|---|---|---|
+| 1 | 1.83 s | 47.6 k |
+| 10 | 0.48 s | 182 k |
+
+On the 2-core VM where the numpy engine of 0.4 took 52 s, the Rust core took 3.5 s on both cores.
 
 ```bash
 cargo bench -p paintcode                                 # the example flowers on one core and on all, compared with the last run
