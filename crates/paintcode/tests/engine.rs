@@ -172,6 +172,7 @@ fn a_dab_is_a_gaussian() {
         grain_scale: 3.0,
         rgb: [1.0; 3],
     };
+    c.prepare_profile(d.hardness);
     let (fp, _) = c.footprint(&d, Spans::Ellipse, None);
     c.composite(&[(&fp, d.rgb)]);
     // one sigma from the centre (pixel centres at x + 0.5) the value is exp(-0.5)

@@ -154,7 +154,7 @@ The engine is Rust: one library, `crates/paintcode`, with one module per part of
 
 Up to 0.4 a numpy engine in this package was the reference, and the core was checked against it at 1e-5 on the float canvas (2.4e-7 at worst on kiku). 0.5 retired it: its output for the examples and a feature matrix is frozen in `tests/golden/`, and the core is checked against those files.
 
-A petal is painted in two parallel phases: every dab's kernel and the wet paint under it are evaluated independently (pickup reads the canvas as it was when the petal began), then the dabs are composited in order, one band of rows per thread. The fast path also skips the parts of each dab's square that lie outside its $q \le 9$ ellipse. None of this changes a bit: the tests render with the reference path (whole squares, `powf` everywhere, one thread) and require identical output.
+A petal is painted in two parallel phases: every dab's kernel and the wet paint under it are evaluated independently (pickup reads the canvas as it was when the petal began), then the dabs are composited in order, one band of rows per thread. The fast path also skips the parts of each dab's square that lie outside its $q \le 9$ ellipse. None of this changes a bit: the tests render with the reference path (whole squares, one thread) and require identical output. The profile itself is read from a table per hardness, 8192 steps over $0 \le q \le 9$ with linear interpolation, instead of `powf` and `exp` on every pixel: at most 1.1e-4 off the formula, for the hardest brush.
 
 kiku, 640², supersample 2 (87,110 dabs), from `cargo bench` on an M2 Pro:
 

@@ -1,5 +1,5 @@
-//! The fast path must paint the same bits as the reference path: whole 3-sigma squares, `powf`
-//! on every pixel, one thread. Any speed-up that changes a pixel fails here.
+//! The fast path must paint the same bits as the reference path: whole 3-sigma squares, one
+//! thread. Any speed-up that changes a pixel fails here.
 
 use paintcode::{Flower, RenderOpts, Spans, paint_flower};
 

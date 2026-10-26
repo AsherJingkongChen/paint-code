@@ -40,13 +40,12 @@ fn buffer(len: usize, what: &str) -> Result<Vec<f32>, String> {
 /// Which pixels of a dab's bounding square get evaluated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Spans {
-    /// The whole 3-sigma square with `powf` on every pixel, exactly as the numpy engine of 0.4 did.
-    /// Kept as the reference that the fast path is tested against.
+    /// Every pixel of the 3-sigma square, as the numpy engine of 0.4 visited them. Kept as the
+    /// reference that the fast path is tested against.
     Square,
-    /// Only the rows and columns the q <= 9 ellipse can touch, and no `powf` when the exponent
-    /// is 1 (a pure Gaussian). Outside the ellipse the kernel is exactly zero and a zero dab
-    /// leaves a pixel bit-for-bit unchanged; `powf(q, 1) == q` is checked by the tests. So the
-    /// result is the same, bit for bit.
+    /// Only the rows and columns the q <= 9 ellipse can touch. Outside the ellipse the kernel is
+    /// exactly zero and a zero dab leaves a pixel bit-for-bit unchanged, so the result is the
+    /// same, bit for bit.
     Ellipse,
 }
 
@@ -101,6 +100,8 @@ pub struct WetCanvas {
     /// Every dab laid so far, in order and in this canvas's pixels, when recording is on.
     pub dabs: Option<Vec<Dab>>,
     grain: HashMap<u64, Vec<f32>>,
+    /// Profiles by the bits of their exponent.
+    profiles: HashMap<u32, gauss::Profile>,
 }
 
 impl std::fmt::Debug for WetCanvas {
@@ -146,6 +147,7 @@ impl WetCanvas {
             wet: buffer(pixels, "wetness map")?,
             dabs: None,
             grain: HashMap::new(),
+            profiles: HashMap::new(),
         })
     }
 
@@ -198,6 +200,14 @@ impl WetCanvas {
         }
     }
 
+    /// Make sure the profile for this hardness exists before footprints read it in parallel.
+    pub fn prepare_profile(&mut self, hardness: f64) {
+        let n = gauss::hardness_exponent(hardness) as f32;
+        self.profiles
+            .entry(n.to_bits())
+            .or_insert_with(|| gauss::Profile::new(n));
+    }
+
     fn grain_field(&self, scale: f64) -> &[f32] {
         self.grain
             .get(&grain::round3(scale).to_bits())
@@ -240,7 +250,10 @@ impl WetCanvas {
         let (c, s) = (c64 as f32, s64 as f32);
         let (sx32, sy32, x32, y32) = (sx as f32, sy as f32, d.x as f32, d.y as f32);
         let n = gauss::hardness_exponent(d.hardness) as f32;
-        let gaussian = spans == Spans::Ellipse && n == 1.0;
+        let profile = self
+            .profiles
+            .get(&n.to_bits())
+            .expect("prepare_profile before footprint");
         let paper = (d.grain > 0.0).then(|| self.grain_field(d.grain_scale));
         // (1.0 - grain) + grain * g, with the float64 brush values rounded to float32 first
         let (g_keep, g_amt) = ((1.0 - d.grain) as f32, d.grain as f32);
@@ -297,12 +310,7 @@ impl WetCanvas {
                 let u = (dx * c + dy * s) / sx32;
                 let v = (-dx * s + dy * c) / sy32;
                 let q = u * u + v * v;
-                let qn = if gaussian { q } else { q.powf(n) };
-                let k32 = if q > CUTOFF_Q {
-                    0.0
-                } else {
-                    (-0.5f32 * qn).exp()
-                };
+                let k32 = if q > CUTOFF_Q { 0.0 } else { profile.at(q) };
                 let k = match paper {
                     Some(g) => k32 * (g_keep + g_amt * g[py * self.width + px]),
                     None => k32,
