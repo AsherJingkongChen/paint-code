@@ -35,7 +35,7 @@ fn same(painting: &mut Painting, f: &Flower, o: &RenderOpts) {
     let got: WetCanvas = painting.paint_flower(f, o).unwrap();
     let want = paint_flower(f, o).unwrap();
     assert_eq!((got.width, got.height), (want.width, want.height));
-    assert!(got.rgb == want.rgb, "the colour differs");
+    assert!(got.planes == want.planes, "the colour differs");
     assert!(got.wet == want.wet, "the wetness differs");
 }
 

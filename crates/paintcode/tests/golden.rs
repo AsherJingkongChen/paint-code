@@ -59,14 +59,14 @@ fn check(name: &str) {
     let ply = encode_coat(&coat);
     let again = lay_coat(&decode_coat(&ply).unwrap()).unwrap();
     assert!(
-        again.rgb == canvas.rgb,
+        again.planes == canvas.planes,
         "{name}: the coat lays another canvas"
     );
 
     std::fs::write(golden(&format!("{name}.png")), encode_canvas(&canvas.dry())).unwrap();
     if let Some(f) = case.get("float").and_then(Value::as_str) {
         let q: Vec<u8> = canvas
-            .rgb
+            .rgb()
             .iter()
             .flat_map(|v| ((v.clamp(0.0, 1.0) * 65535.0).round() as u16).to_le_bytes())
             .collect();

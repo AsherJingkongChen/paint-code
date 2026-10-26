@@ -79,7 +79,7 @@ pub struct Pickup {
 /// A fixed view of the canvas to read pickup from: the live canvas, or a snapshot of a rectangle.
 #[derive(Clone, Copy)]
 pub struct Source<'a> {
-    rgb: &'a [f32],
+    planes: [&'a [f32]; 3],
     wet: &'a [f32],
     ox: usize,
     oy: usize,
@@ -92,8 +92,8 @@ pub struct WetCanvas {
     pub width: usize,
     pub height: usize,
     pub seed: i64,
-    /// Row-major RGB in 0..1, `height * width * 3`.
-    pub rgb: Vec<f32>,
+    /// Row-major red, green and blue in 0..1, a plane each of `height * width`.
+    pub planes: [Vec<f32>; 3],
     /// How much paint is still wet, `height * width`.
     pub wet: Vec<f32>,
     /// Every dab laid so far, in order and in this canvas's pixels, when recording is on.
@@ -112,7 +112,7 @@ impl Clone for WetCanvas {
             width: self.width,
             height: self.height,
             seed: self.seed,
-            rgb: self.rgb.clone(),
+            planes: self.planes.clone(),
             wet: self.wet.clone(),
             dabs: self.dabs.clone(),
             grain: self.grain.clone(),
@@ -153,15 +153,21 @@ impl WetCanvas {
                      (16384 x 16384), counted after scale and supersample"
                 )
             })?;
-        let mut rgb = buffer(pixels * 3, "canvas")?;
-        for px in rgb.chunks_exact_mut(3) {
-            px.copy_from_slice(&background);
-        }
+        let plane = |v: f32| -> Result<Vec<f32>, String> {
+            let mut p = buffer(pixels, "canvas")?;
+            p.fill(v);
+            Ok(p)
+        };
+        let planes = [
+            plane(background[0])?,
+            plane(background[1])?,
+            plane(background[2])?,
+        ];
         Ok(WetCanvas {
             width,
             height,
             seed,
-            rgb,
+            planes,
             wet: buffer(pixels, "wetness map")?,
             dabs: None,
             grain: HashMap::new(),
@@ -172,7 +178,7 @@ impl WetCanvas {
 
     pub fn live(&self) -> Source<'_> {
         Source {
-            rgb: &self.rgb,
+            planes: [&self.planes[0], &self.planes[1], &self.planes[2]],
             wet: &self.wet,
             ox: 0,
             oy: 0,
@@ -187,22 +193,27 @@ impl WetCanvas {
         y0: usize,
         x1: usize,
         y1: usize,
-    ) -> (Vec<f32>, Vec<f32>, [usize; 3]) {
+    ) -> ([Vec<f32>; 3], Vec<f32>, [usize; 3]) {
         let (x1, y1) = (x1.min(self.width), y1.min(self.height));
         let (x0, y0) = (x0.min(x1), y0.min(y1));
         let w = x1 - x0;
-        let mut rgb = Vec::with_capacity(w * (y1 - y0) * 3);
-        let mut wet = Vec::with_capacity(w * (y1 - y0));
-        for y in y0..y1 {
-            rgb.extend_from_slice(&self.rgb[(y * self.width + x0) * 3..(y * self.width + x1) * 3]);
-            wet.extend_from_slice(&self.wet[y * self.width + x0..y * self.width + x1]);
-        }
-        (rgb, wet, [x0, y0, w])
+        let cut = |p: &[f32]| -> Vec<f32> {
+            (y0..y1)
+                .flat_map(|y| &p[y * self.width + x0..y * self.width + x1])
+                .copied()
+                .collect()
+        };
+        let planes = [
+            cut(&self.planes[0]),
+            cut(&self.planes[1]),
+            cut(&self.planes[2]),
+        ];
+        (planes, cut(&self.wet), [x0, y0, w])
     }
 
-    pub fn view<'a>(rgb: &'a [f32], wet: &'a [f32], origin: [usize; 3]) -> Source<'a> {
+    pub fn view<'a>(planes: &'a [Vec<f32>; 3], wet: &'a [f32], origin: [usize; 3]) -> Source<'a> {
         Source {
-            rgb,
+            planes: [&planes[0], &planes[1], &planes[2]],
             wet,
             ox: origin[0],
             oy: origin[1],
@@ -368,7 +379,7 @@ impl WetCanvas {
                     let kw = k * src.wet[i];
                     kwsum += kw as f64;
                     for ch in 0..3 {
-                        under[ch] += (src.rgb[i * 3 + ch] * kw) as f64;
+                        under[ch] += (src.planes[ch][i] * kw) as f64;
                     }
                 }
             }
@@ -394,11 +405,13 @@ impl WetCanvas {
     /// one-dab-at-a-time engine, so the result does not depend on the number of threads.
     pub fn composite(&mut self, prints: &[(&Footprint<'_>, [f32; 3])]) {
         let w = self.width;
-        self.rgb
-            .par_chunks_mut(BAND * w * 3)
+        let [red, green, blue] = &mut self.planes;
+        red.par_chunks_mut(BAND * w)
+            .zip(green.par_chunks_mut(BAND * w))
+            .zip(blue.par_chunks_mut(BAND * w))
             .zip(self.wet.par_chunks_mut(BAND * w))
             .enumerate()
-            .for_each(|(band, (rgb, wet))| {
+            .for_each(|(band, (((r, g), b), wet))| {
                 let (b0, b1) = (band * BAND, band * BAND + wet.len() / w);
                 for &(fp, col) in prints {
                     if fp.skip || fp.y_max <= b0 || fp.y_min >= b1 {
@@ -408,18 +421,19 @@ impl WetCanvas {
                     let first = fp.spans.partition_point(|sp| sp.y < b0);
                     let last = first + fp.spans[first..].partition_point(|sp| sp.y < b1);
                     for sp in &fp.spans[first..last] {
-                        let row = (sp.y - b0) * w + sp.x0;
+                        let row = (sp.y - b0) * w + sp.x0..(sp.y - b0) * w + sp.x0 + sp.len;
                         let ks = &fp.k[sp.off..sp.off + sp.len];
-                        let wrow = &mut wet[row..row + sp.len];
-                        let prow = &mut rgb[row * 3..(row + sp.len) * 3];
-                        for ((&k, wv), p) in
-                            ks.iter().zip(wrow.iter_mut()).zip(prow.chunks_exact_mut(3))
-                        {
+                        let (r, g, b) = (
+                            &mut r[row.clone()],
+                            &mut g[row.clone()],
+                            &mut b[row.clone()],
+                        );
+                        for (i, (&k, wv)) in ks.iter().zip(&mut wet[row]).enumerate() {
                             let a = (fp.alpha * k).clamp(0.0, 1.0);
                             let keep = 1.0f32 - a;
-                            for ch in 0..3 {
-                                p[ch] = p[ch] * keep + a * col[ch];
-                            }
+                            r[i] = r[i] * keep + a * col[0];
+                            g[i] = g[i] * keep + a * col[1];
+                            b[i] = b[i] * keep + a * col[2];
                             *wv += a * (1.0f32 - *wv);
                         }
                     }
@@ -445,9 +459,9 @@ impl WetCanvas {
                 let dx = px as f64 + 0.5 - x;
                 let k = (-0.5 * (dx * dx + dy * dy) / var).exp();
                 ksum += k;
-                let i = (py as usize * self.width + px as usize) * 3;
+                let i = py as usize * self.width + px as usize;
                 for ch in 0..3 {
-                    acc[ch] += self.rgb[i + ch] as f64 * k;
+                    acc[ch] += self.planes[ch][i] as f64 * k;
                 }
             }
         }
@@ -461,7 +475,7 @@ impl WetCanvas {
         }
         let (w, h) = (self.width / n, self.height / n);
         let inv = 1.0 / (n * n) as f64;
-        let mut rgb = vec![0f32; w * h * 3];
+        let mut planes = [vec![0f32; w * h], vec![0f32; w * h], vec![0f32; w * h]];
         let mut wet = vec![0f32; w * h];
         for y in 0..h {
             for x in 0..w {
@@ -470,28 +484,52 @@ impl WetCanvas {
                     for xx in x * n..(x + 1) * n {
                         let i = yy * self.width + xx;
                         for ch in 0..3 {
-                            acc[ch] += self.rgb[i * 3 + ch] as f64;
+                            acc[ch] += self.planes[ch][i] as f64;
                         }
                         wacc += self.wet[i] as f64;
                     }
                 }
                 for ch in 0..3 {
-                    rgb[(y * w + x) * 3 + ch] = (acc[ch] * inv) as f32;
+                    planes[ch][y * w + x] = (acc[ch] * inv) as f32;
                 }
                 wet[y * w + x] = (wacc * inv) as f32;
             }
         }
-        self.rgb = rgb;
+        self.planes = planes;
         self.wet = wet;
         self.width = w;
         self.height = h;
         self.grain.clear();
     }
 
+    /// Every pixel's red, green and blue, row by row: `height * width * 3` values.
+    pub fn rgb(&self) -> Vec<f32> {
+        let [r, g, b] = &self.planes;
+        r.iter()
+            .zip(g)
+            .zip(b)
+            .flat_map(|((&r, &g), &b)| [r, g, b])
+            .collect()
+    }
+
+    /// The colour of the pixel at (x, y).
+    pub fn pixel(&self, x: usize, y: usize) -> [f32; 3] {
+        let i = y * self.width + x;
+        [self.planes[0][i], self.planes[1][i], self.planes[2][i]]
+    }
+
+    /// Paint the pixel at (x, y) one colour.
+    pub fn set_pixel(&mut self, x: usize, y: usize, rgb: [f32; 3]) {
+        let i = y * self.width + x;
+        for (plane, v) in self.planes.iter_mut().zip(rgb) {
+            plane[i] = v;
+        }
+    }
+
     /// The pixels you see: every value clamped and rounded to 8 bits, no flower on them yet.
     pub fn dry(&self) -> Canvas {
         let pixels = self
-            .rgb
+            .rgb()
             .iter()
             .map(|&v| (v.clamp(0.0, 1.0) * 255.0f32 + 0.5f32) as u8)
             .collect();

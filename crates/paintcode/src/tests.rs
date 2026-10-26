@@ -111,7 +111,7 @@ fn a_soft_painting_round_trips_through_the_ply() {
     assert_eq!((w, h), (c.width, c.height));
     let gap = back
         .iter()
-        .zip(&c.rgb)
+        .zip(&c.rgb())
         .map(|(a, b)| (a - b).abs())
         .fold(0f32, f32::max);
     assert!(gap < 2.0 / 255.0, "{gap}");
