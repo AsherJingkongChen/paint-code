@@ -359,7 +359,10 @@ impl WetCanvas {
                     if fp.skip || fp.y_max <= b0 || fp.y_min >= b1 {
                         continue;
                     }
-                    for sp in fp.spans.iter().filter(|sp| sp.y >= b0 && sp.y < b1) {
+                    // spans are in row order: the band's are one run of them
+                    let first = fp.spans.partition_point(|sp| sp.y < b0);
+                    let last = first + fp.spans[first..].partition_point(|sp| sp.y < b1);
+                    for sp in &fp.spans[first..last] {
                         let row = (sp.y - b0) * w + sp.x0;
                         let ks = &fp.k[sp.off..sp.off + sp.len];
                         let wrow = &mut wet[row..row + sp.len];
