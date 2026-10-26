@@ -58,7 +58,14 @@ canvas.peek(x=20, y=100), canvas.crop(x=0, y=0, width=200, height=100)
 
 Files are told apart by their bytes, not their names: `load_flower` reads JSON, or the flower on a PNG (a PNG without one is an error); `load_canvas` takes any PNG and only its pixels.
 
-The same flower always produces the same pixels. Jitter is counter-based: every random number is a hash of (seed, petal index, dab index, slot), so editing or lengthening one petal never moves the jitter of another, and appending petals leaves the ones before them alone. To keep working on a painting, load its flower, append petals and paint it again.
+The same flower always produces the same pixels. Jitter is counter-based: every random number is a hash of (seed, petal index, dab index, slot), so editing or lengthening one petal never moves the jitter of another, and appending petals leaves the ones before them alone. To keep working on a painting, load its flower, append petals and paint it again. A `Painting` remembers where it stopped, so painting again paints only the new petals, and taking back the last petal, or the petals just appended, costs only a copy; it keeps two float canvases at the painted size to do it:
+
+```python
+painting = pc.Painting()
+canvas = painting.flower_to_canvas(flower=flower, supersample=2)
+flower["petals"].append({"brush": "ink", "color": "#223", "points": [[60, 40], [340, 60]]})
+canvas = painting.flower_to_canvas(flower=flower, supersample=2)   # paints one petal
+```
 
 Version 0.6 paints the same pixels as 0.5 under new names: a scene is a flower, a stroke is a petal, `PRESETS` is `BRUSHES` (and a brush object names the brush it starts from with `"brush"`, not `"preset"`), and the flower is flat (`width`, `height`, `background` and `seed` at the top; `supersample` is an option of the paint). The `.petal` ZIP is gone: a `.flower.json` holds the flower and a `.flower.png` carries it on its canvas. Painting over a base image is gone too. A `.coat.ply` keeps every dab exactly, so it is larger than 0.5's `.ply`.
 
