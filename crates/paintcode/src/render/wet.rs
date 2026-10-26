@@ -1,6 +1,12 @@
 use std::collections::HashMap;
 
+use std::simd::prelude::*;
+
 use crate::math::gauss::{self, CUTOFF_Q};
+
+/// Lanes: pixels laid at once.
+const L: usize = 8;
+type F = Simd<f32, L>;
 use rayon::prelude::*;
 
 use super::{Canvas, grain};
@@ -134,6 +140,32 @@ impl std::fmt::Debug for WetCanvas {
 }
 
 const BAND: usize = 16;
+
+/// Lay one row of a footprint, "over": eight pixels at a time, then the rest one by one, with
+/// the same arithmetic in both, so the lanes change no bit.
+#[inline]
+fn lay(alpha: f32, col: [f32; 3], ks: &[f32], rgb: [&mut [f32]; 3], wet: &mut [f32]) {
+    let n = ks.len() / L * L;
+    let (one, zero, al) = (F::splat(1.0), F::splat(0.0), F::splat(alpha));
+    let [r, g, b] = rgb;
+    for i in (0..n).step_by(L) {
+        let a = (al * F::from_slice(&ks[i..])).simd_clamp(zero, one);
+        let keep = one - a;
+        for (p, c) in [(&mut *r, col[0]), (&mut *g, col[1]), (&mut *b, col[2])] {
+            (F::from_slice(&p[i..]) * keep + a * F::splat(c)).copy_to_slice(&mut p[i..]);
+        }
+        let w = F::from_slice(&wet[i..]);
+        (w + a * (one - w)).copy_to_slice(&mut wet[i..]);
+    }
+    for i in n..ks.len() {
+        let a = (alpha * ks[i]).clamp(0.0, 1.0);
+        let keep = 1.0f32 - a;
+        r[i] = r[i] * keep + a * col[0];
+        g[i] = g[i] * keep + a * col[1];
+        b[i] = b[i] * keep + a * col[2];
+        wet[i] += a * (1.0f32 - wet[i]);
+    }
+}
 
 impl WetCanvas {
     /// A blank canvas. Fails, rather than aborting, when it is larger than [`MAX_PIXELS`] or the
@@ -428,14 +460,7 @@ impl WetCanvas {
                             &mut g[row.clone()],
                             &mut b[row.clone()],
                         );
-                        for (i, (&k, wv)) in ks.iter().zip(&mut wet[row]).enumerate() {
-                            let a = (fp.alpha * k).clamp(0.0, 1.0);
-                            let keep = 1.0f32 - a;
-                            r[i] = r[i] * keep + a * col[0];
-                            g[i] = g[i] * keep + a * col[1];
-                            b[i] = b[i] * keep + a * col[2];
-                            *wv += a * (1.0f32 - *wv);
-                        }
+                        lay(fp.alpha, col, ks, [r, g, b], &mut wet[row]);
                     }
                 }
             });

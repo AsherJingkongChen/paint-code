@@ -20,6 +20,8 @@
 //! is the [`Canvas`]: [`flower_to_canvas`] and [`coat_to_canvas`]. A [`Painting`] remembers where
 //! it stopped, so a flower painted again only paints its new petals.
 
+#![feature(portable_simd)]
+
 pub mod flower;
 pub mod io;
 pub mod math;
