@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use serde_json::{Map, Value};
 
 use super::{Brush, Error, Result, err, parse_color};
+use crate::math::rng;
 
 /// What a petal paints with.
 #[derive(Debug, Clone, PartialEq)]
@@ -20,6 +21,10 @@ pub struct Petal {
     /// Rows of (x, y, pressure, tilt); missing pressure is 1, missing tilt is 0.
     pub points: Vec<[f64; 4]>,
     pub smooth: bool,
+    /// A name of its own, unique in the flower: its jitter follows it wherever it moves.
+    pub id: Option<String>,
+    /// The petals it belongs with; its jitter follows its place among them.
+    pub group: Option<String>,
 }
 
 /// A flower: what a painter writes. A size, a background, a seed for every random number, named
@@ -37,7 +42,7 @@ pub struct Flower {
 
 /// The keys a flower may have. Anything else is a mistake worth naming.
 const FLOWER_KEYS: [&str; 6] = ["width", "height", "background", "seed", "brushes", "petals"];
-const PETAL_KEYS: [&str; 4] = ["brush", "color", "points", "smooth"];
+const PETAL_KEYS: [&str; 6] = ["brush", "color", "points", "smooth", "id", "group"];
 
 impl Flower {
     pub fn from_json(text: &str) -> Result<Flower> {
@@ -110,6 +115,14 @@ impl Flower {
         {
             petals.push(parse_petal(s, &named).map_err(|e| Error(format!("petal {idx}: {e}")))?);
         }
+        let mut ids: HashMap<&str, usize> = HashMap::new();
+        for (idx, p) in petals.iter().enumerate() {
+            if let Some(id) = p.id.as_deref() {
+                if let Some(first) = ids.insert(id, idx) {
+                    return err(format!("petal {idx}: id {id:?} is petal {first}'s already"));
+                }
+            }
+        }
         Ok(Flower {
             source: v.clone(),
             width,
@@ -118,6 +131,29 @@ impl Flower {
             seed,
             petals,
         })
+    }
+}
+
+impl Flower {
+    /// What keys each petal's jitter, in order. A petal with an `id` is keyed by it, so taking out
+    /// or adding other petals never moves its jitter. A petal in a `group` (and without an id) is
+    /// keyed by the group and its place among the group's petals without an id, so only its own
+    /// group can move it. Any other petal is keyed by its index in the flower, as it always was.
+    pub fn jitter_keys(&self) -> Vec<i64> {
+        let mut places: HashMap<&str, i64> = HashMap::new();
+        self.petals
+            .iter()
+            .enumerate()
+            .map(|(i, p)| match (&p.id, &p.group) {
+                (Some(id), _) => rng::named(&[rng::ID], id),
+                (None, Some(g)) => {
+                    let place = places.entry(g).or_insert(0);
+                    *place += 1;
+                    rng::named(&[rng::GROUP, *place - 1], g)
+                }
+                (None, None) => i as i64,
+            })
+            .collect()
     }
 }
 
@@ -187,6 +223,14 @@ fn parse_petal(s: &Value, named: &HashMap<&str, Brush>) -> Result<Petal> {
     if points.is_empty() {
         return err("petal has no points");
     }
+    let name = |k: &str| -> Result<Option<String>> {
+        match s.get(k) {
+            None => Ok(None),
+            Some(Value::String(t)) if !t.is_empty() => Ok(Some(t.clone())),
+            Some(v) => Err(Error(format!("{k} must be a non-empty string, got {v}"))),
+        }
+    };
+    let (id, group) = (name("id")?, name("group")?);
     let smooth = match s.get("smooth") {
         None => true,
         Some(v) => v
@@ -198,5 +242,7 @@ fn parse_petal(s: &Value, named: &HashMap<&str, Brush>) -> Result<Petal> {
         color,
         points,
         smooth,
+        id,
+        group,
     })
 }

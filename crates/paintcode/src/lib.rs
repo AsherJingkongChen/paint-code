@@ -113,7 +113,8 @@ fn paint(flower: &Flower, opts: &RenderOpts, record: bool) -> Result<WetCanvas> 
     if record {
         canvas.dabs = Some(Vec::new());
     }
-    lay_petals(&mut canvas, &flower.petals, size.scale, opts);
+    let keys = flower.jitter_keys();
+    lay_petals(&mut canvas, &flower.petals, &keys, size.scale, opts);
     canvas.downsample(size.supersample);
     Ok(canvas)
 }
@@ -173,16 +174,22 @@ impl Size {
     }
 }
 
-/// Lay petals on a canvas, after the ones already on it.
-fn lay_petals(canvas: &mut WetCanvas, petals: &[Petal], scale: f64, opts: &RenderOpts) {
-    for p in petals {
+/// Lay petals on a canvas, after the ones already on it, each with its jitter key.
+fn lay_petals(
+    canvas: &mut WetCanvas,
+    petals: &[Petal],
+    keys: &[i64],
+    scale: f64,
+    opts: &RenderOpts,
+) {
+    for (p, &key) in petals.iter().zip(keys) {
         let brush = p.brush.scaled(scale);
         let pts: Vec<[f64; 4]> = p
             .points
             .iter()
             .map(|q| [q[0] * scale, q[1] * scale, q[2], q[3]])
             .collect();
-        petal::paint_petal(canvas, &brush, &p.color, &pts, p.smooth, opts.petal);
+        petal::paint_petal(canvas, key, &brush, &p.color, &pts, p.smooth, opts.petal);
     }
 }
 
@@ -255,21 +262,34 @@ impl Painting {
             canvas: canvas.clone(),
         };
         let all = flower.petals.len();
+        let keys = flower.jitter_keys();
         match start {
             // the canvas it began from is now the one used last, before the one it ends on
             Some((_, i)) => {
-                lay_petals(&mut canvas, &flower.petals[held..], size.scale, opts);
+                lay_petals(
+                    &mut canvas,
+                    &flower.petals[held..],
+                    &keys[held..],
+                    size.scale,
+                    opts,
+                );
                 let begun = self.stops.remove(i);
                 self.stops.push(begun);
             }
             // from nothing, keep the canvas before the last petal, the one most likely taken back
             None => {
                 let last = all.saturating_sub(1);
-                lay_petals(&mut canvas, &flower.petals[..last], size.scale, opts);
+                lay_petals(&mut canvas, &flower.petals[..last], &keys, size.scale, opts);
                 if last > 0 {
                     self.stops.push(stop(&flower.petals[..last], &canvas));
                 }
-                lay_petals(&mut canvas, &flower.petals[last..], size.scale, opts);
+                lay_petals(
+                    &mut canvas,
+                    &flower.petals[last..],
+                    &keys[last..],
+                    size.scale,
+                    opts,
+                );
             }
         }
         if start.is_none() || held < all {

@@ -98,8 +98,6 @@ pub struct WetCanvas {
     pub rgb: Vec<f32>,
     /// How much paint is still wet, `height * width`.
     pub wet: Vec<f32>,
-    /// Petals painted so far; a petal's index keys its jitter.
-    pub petals: i64,
     /// Every dab laid so far, in order and in this canvas's pixels, when recording is on.
     pub dabs: Option<Vec<Dab>>,
     grain: HashMap<u64, Vec<f32>>,
@@ -111,7 +109,6 @@ impl std::fmt::Debug for WetCanvas {
             .field("width", &self.width)
             .field("height", &self.height)
             .field("seed", &self.seed)
-            .field("petals", &self.petals)
             .field("dabs", &self.dabs.as_ref().map(Vec::len))
             .finish_non_exhaustive()
     }
@@ -147,7 +144,6 @@ impl WetCanvas {
             seed,
             rgb,
             wet: buffer(pixels, "wetness map")?,
-            petals: 0,
             dabs: None,
             grain: HashMap::new(),
         })

@@ -33,7 +33,7 @@ fn row(points: &[[f64; 2]]) -> Vec<[f64; 4]> {
 }
 
 fn petal(c: &mut WetCanvas, b: &Brush, color: Color, pts: &[[f64; 4]]) -> paintcode::Painted {
-    paint_petal(c, b, &color, pts, true, Options::default())
+    paint_petal(c, 0, b, &color, pts, true, Options::default())
 }
 
 fn blank(w: usize, h: usize, bg: &str) -> WetCanvas {
@@ -480,4 +480,83 @@ fn a_huge_grain_scale_paints_without_a_huge_paper() {
     let v = json!({"width": 50, "height": 50, "petals": [{"brush": "pencil", "grain_scale": 1e7, "points": [[5, 5], [40, 40]]}]});
     let c = paint(v, RenderOpts::default());
     assert_eq!(c.rgb.len(), 50 * 50 * 3);
+}
+
+/// A petal that jitters every way it can, at a height of its own so no petal picks up another.
+fn jittery(y: f64, extra: Value) -> Value {
+    let mut p = json!({"brush": "round", "color": "#336699", "size": 6, "size_jitter": 0.4,
+                       "angle_jitter": 20, "pos_jitter": 0.3, "flow_jitter": 0.3,
+                       "points": [[10, y], [150, y]]});
+    p.as_object_mut()
+        .unwrap()
+        .extend(extra.as_object().unwrap().clone());
+    p
+}
+
+/// Where the last petal's dabs went and how they were shaped, from a flower of `petals`.
+fn last_petal(petals: Vec<Value>) -> Vec<[f64; 6]> {
+    let all = |ps: Vec<Value>| -> Vec<[f64; 6]> {
+        coat(
+            json!({"width": 160, "height": 80, "seed": 3, "petals": ps}),
+            RenderOpts::default(),
+        )
+        .dabs
+        .iter()
+        .map(|d| [d.x, d.y, d.sx, d.sy, d.theta, d.alpha])
+        .collect()
+    };
+    let before = all(petals[..petals.len() - 1].to_vec()).len();
+    all(petals)[before..].to_vec()
+}
+
+#[test]
+fn an_id_keeps_its_jitter_when_other_petals_come_and_go() {
+    let named = jittery(60.0, json!({"id": "tail"}));
+    let alone = last_petal(vec![named.clone()]);
+    assert_eq!(
+        last_petal(vec![jittery(10.0, json!({})), named.clone()]),
+        alone
+    );
+    assert_eq!(
+        last_petal(vec![
+            jittery(10.0, json!({})),
+            jittery(30.0, json!({})),
+            named
+        ]),
+        alone
+    );
+    // without the id, its index keys it, and the index moved
+    let plain = jittery(60.0, json!({}));
+    assert_ne!(
+        last_petal(vec![jittery(10.0, json!({})), plain.clone()]),
+        last_petal(vec![plain])
+    );
+}
+
+#[test]
+fn a_group_keeps_its_jitter_unless_its_own_group_changes() {
+    let sky = |y: f64| jittery(y, json!({"group": "sky"}));
+    let stem = jittery(40.0, json!({"group": "stem"}));
+    let whole = last_petal(vec![sky(10.0), stem.clone(), sky(70.0)]);
+    // another group's petal taken out: the same
+    assert_eq!(last_petal(vec![sky(10.0), sky(70.0)]), whole);
+    // a petal with an id does not count among the group's places
+    let named = jittery(25.0, json!({"group": "sky", "id": "moon"}));
+    assert_eq!(last_petal(vec![sky(10.0), named, sky(70.0)]), whole);
+    // a petal of its own group taken out: it is first in the group now
+    assert_ne!(last_petal(vec![stem, sky(70.0)]), whole);
+}
+
+#[test]
+fn ids_and_groups_are_names() {
+    let bad = |extra: Value| {
+        let f = json!({"petals": [jittery(10.0, json!({"id": "a"})), jittery(20.0, extra)]});
+        Flower::from_value(&f).unwrap_err().0
+    };
+    assert_eq!(
+        bad(json!({"id": "a"})),
+        "petal 1: id \"a\" is petal 0's already"
+    );
+    assert!(bad(json!({"id": 3})).contains("id must be a non-empty string"));
+    assert!(bad(json!({"group": ""})).contains("group must be a non-empty string"));
 }

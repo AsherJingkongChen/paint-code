@@ -58,7 +58,7 @@ canvas.peek(x=20, y=100), canvas.crop(x=0, y=0, width=200, height=100)
 
 Files are told apart by their bytes, not their names: `load_flower` reads JSON, or the flower on a PNG (a PNG without one is an error); `load_canvas` takes any PNG and only its pixels.
 
-The same flower always produces the same pixels. Jitter is counter-based: every random number is a hash of (seed, petal index, dab index, slot), so editing or lengthening one petal never moves the jitter of another, and appending petals leaves the ones before them alone. To keep working on a painting, load its flower, append petals and paint it again. A `Painting` remembers where it stopped, so painting again paints only the new petals, and taking back the last petal, or the petals just appended, costs only a copy; it keeps two float canvases at the painted size to do it:
+The same flower always produces the same pixels. Jitter is counter-based: every random number is a hash of (seed, petal, dab index, slot), so editing or lengthening one petal never moves the jitter of another, and appending petals leaves the ones before them alone. A petal is its index unless it has an `id` or a `group`; with one, taking a petal out of the middle leaves the others as they were. To keep working on a painting, load its flower, append petals and paint it again. A `Painting` remembers where it stopped, so painting again paints only the new petals, and taking back the last petal, or the petals just appended, costs only a copy; it keeps two float canvases at the painted size to do it:
 
 ```python
 painting = pc.Painting()
@@ -91,6 +91,8 @@ Version 0.5 paints the same pixels as 0.4 (within 1/255 on the PNG, 1e-5 on the 
 - **brush** is a name from `paintcode.BRUSHES`, a name from `brushes`, or an inline object `{"brush": ..., ...}`. Any brush field can also be overridden directly on the petal.
 - **color** is `[r, g, b]` (0..255) or `"#rrggbb"`. `null` loads the brush with whatever is under its first touch, which makes it a smudge.
 - **smooth** (default `true`) runs a centripetal Catmull-Rom spline through the points; `false` keeps straight segments.
+- **id** (optional) names the petal, once in the flower. Its jitter is keyed by the name, so taking out, adding or reordering other petals never changes how it lies.
+- **group** (optional) names the petals it belongs with, such as `"sky"`. A petal in a group, and without an id, is keyed by the group and its place among them, so only a change in its own group can move its jitter.
 
 ## The dab
 

@@ -29,9 +29,9 @@ struct Plan {
     mix_exp: f64,
 }
 
-fn plan(seed: i64, brush: &Brush, sid: i64, path: &[Sample]) -> Vec<Plan> {
+fn plan(seed: i64, brush: &Brush, key: i64, path: &[Sample]) -> Vec<Plan> {
     let jitter = |n: i64, slot: i64, amount: f64| {
-        -amount + 2.0 * amount * rng::uniform(&[seed, rng::JITTER, sid, n, slot])
+        -amount + 2.0 * amount * rng::uniform(&[seed, rng::JITTER, key, n, slot])
     };
     let k = brush.sigma_scale();
     let mut load = brush.load;
@@ -100,19 +100,18 @@ pub struct Painted {
     pub carried: [f32; 3],
 }
 
-/// Lay one petal onto the canvas.
+/// Lay one petal onto the canvas. `key` keys its jitter: what the flower's `jitter_keys` gives it.
 pub fn paint_petal(
     canvas: &mut WetCanvas,
+    key: i64,
     brush: &Brush,
     color: &Color,
     points: &[[f64; 4]],
     smooth: bool,
     opts: Options,
 ) -> Painted {
-    let sid = canvas.petals;
-    canvas.petals += 1;
     let path = samples(points, brush, smooth);
-    let plans = plan(canvas.seed, brush, sid, &path);
+    let plans = plan(canvas.seed, brush, key, &path);
     if plans.is_empty() {
         let carried = match color {
             Color::Rgb(c) => *c,

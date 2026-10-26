@@ -8,6 +8,10 @@
 pub const JITTER: i64 = 1;
 pub const GRAIN: i64 = 2;
 
+/// What a petal's key is made from when it is not its index (see [`named`]).
+pub const ID: i64 = 3;
+pub const GROUP: i64 = 4;
+
 pub const SIZE: i64 = 0;
 pub const FLOW: i64 = 1;
 pub const ANGLE: i64 = 2;
@@ -25,6 +29,20 @@ pub fn mix(z: u64) -> u64 {
 #[inline]
 pub fn key(parts: &[i64]) -> u64 {
     parts.iter().fold(0u64, |h, &p| mix(h ^ p as u64))
+}
+
+/// A petal key from a name rather than an index: the key of `parts`, then the text's length and
+/// its bytes eight at a time (little endian, the last eight padded with zeros), with the sign
+/// bit set. Indices are never negative, so a named key never meets an index.
+pub fn named(parts: &[i64], text: &str) -> i64 {
+    let mut h = key(parts);
+    h = mix(h ^ text.len() as u64);
+    for chunk in text.as_bytes().chunks(8) {
+        let mut b = [0u8; 8];
+        b[..chunk.len()].copy_from_slice(chunk);
+        h = mix(h ^ u64::from_le_bytes(b));
+    }
+    (h | 1 << 63) as i64
 }
 
 /// A float64 in [0, 1) from the top 53 bits of the key.
@@ -61,6 +79,11 @@ mod tests {
                 0.8277716636657715,
                 0.01953345537185669
             ]
+        );
+        assert_eq!(named(&[ID], "sky") as u64, 0xFFA8_659B_48D2_CFC1);
+        assert_eq!(
+            named(&[GROUP, 2], "a petal named at length") as u64,
+            0xFDAF_4D80_A89C_C031
         );
     }
 }
