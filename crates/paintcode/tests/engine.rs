@@ -173,7 +173,8 @@ fn a_dab_is_a_gaussian() {
         rgb: [1.0; 3],
     };
     c.prepare_profile(d.hardness);
-    let (fp, _) = c.footprint(&d, Spans::Ellipse, None);
+    let mut room = vec![0.0; c.room(&d)];
+    let (fp, _) = c.footprint(&d, Spans::Ellipse, None, &mut room);
     c.composite(&[(&fp, d.rgb)]);
     // one sigma from the centre (pixel centres at x + 0.5) the value is exp(-0.5)
     let v = c.rgb[(31 * 64 + 32 + 6 - 1) * 3] as f64;

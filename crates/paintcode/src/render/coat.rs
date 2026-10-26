@@ -41,11 +41,14 @@ pub fn lay_coat(coat: &Coat) -> Result<WetCanvas, String> {
         }
         canvas.prepare_profile(d.hardness);
     }
+    let mut scratch = Vec::new();
     for batch in coat.dabs.chunks(BATCH) {
         let cv: &WetCanvas = &canvas;
+        let rooms = cv.rooms(batch.iter(), &mut scratch);
         let prints: Vec<Footprint> = batch
             .par_iter()
-            .map(|d| cv.footprint(d, Spans::Ellipse, None).0)
+            .zip(rooms)
+            .map(|(d, room)| cv.footprint(d, Spans::Ellipse, None, room).0)
             .collect();
         let coloured: Vec<(&Footprint, [f32; 3])> =
             prints.iter().zip(batch).map(|(f, d)| (f, d.rgb)).collect();

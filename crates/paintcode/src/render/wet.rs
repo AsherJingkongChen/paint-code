@@ -57,11 +57,11 @@ struct Span {
     off: usize,
 }
 
-/// A dab evaluated on the pixel grid: its kernel values, row by row.
+/// A dab evaluated on the pixel grid: its kernel values, row by row, in the room it was given.
 #[derive(Debug, Clone, Default)]
-pub struct Footprint {
+pub struct Footprint<'a> {
     spans: Vec<Span>,
-    k: Vec<f32>,
+    k: &'a [f32],
     alpha: f32,
     /// wsum <= 1e-8: nothing reaches the canvas, and the dab is neither composited nor recorded.
     pub skip: bool,
@@ -88,7 +88,6 @@ pub struct Source<'a> {
 
 /// The canvas while it is painted: float RGB that receives dabs, a wetness map, and the paper
 /// grain, at the size the dabs are laid (supersampled). Dried, it is the [`Canvas`].
-#[derive(Clone)]
 pub struct WetCanvas {
     pub width: usize,
     pub height: usize,
@@ -102,6 +101,25 @@ pub struct WetCanvas {
     grain: HashMap<u64, Vec<f32>>,
     /// Profiles by the bits of their exponent.
     profiles: HashMap<u32, gauss::Profile>,
+    /// Room for the kernels of the dabs being laid, kept between petals (see [`WetCanvas::rooms`]).
+    pub scratch: Vec<f32>,
+}
+
+/// A copy of the paint, the paper and the profiles; the scratch buffer starts empty again.
+impl Clone for WetCanvas {
+    fn clone(&self) -> Self {
+        WetCanvas {
+            width: self.width,
+            height: self.height,
+            seed: self.seed,
+            rgb: self.rgb.clone(),
+            wet: self.wet.clone(),
+            dabs: self.dabs.clone(),
+            grain: self.grain.clone(),
+            profiles: self.profiles.clone(),
+            scratch: Vec::new(),
+        }
+    }
 }
 
 impl std::fmt::Debug for WetCanvas {
@@ -148,6 +166,7 @@ impl WetCanvas {
             dabs: None,
             grain: HashMap::new(),
             profiles: HashMap::new(),
+            scratch: Vec::new(),
         })
     }
 
@@ -228,16 +247,44 @@ impl WetCanvas {
         Some((x0 as usize, x1 as usize, y0 as usize, y1 as usize))
     }
 
-    /// Evaluate one dab: its kernel, and if `pickup` the wet paint under it read from `src`.
+    /// How many kernel values a dab's footprint may write: its clipped 3-sigma square.
+    pub fn room(&self, d: &Dab) -> usize {
+        self.bounds(d)
+            .map_or(0, |(x0, x1, y0, y1)| (x1 - x0) * (y1 - y0))
+    }
+
+    /// A room for each dab, cut from one buffer that grows to fit and is kept between calls, so
+    /// evaluating footprints in parallel allocates nothing and needs no lock.
+    pub fn rooms<'a, 'd>(
+        &self,
+        dabs: impl Iterator<Item = &'d Dab> + Clone,
+        scratch: &'a mut Vec<f32>,
+    ) -> Vec<&'a mut [f32]> {
+        let total: usize = dabs.clone().map(|d| self.room(d)).sum();
+        if scratch.len() < total {
+            scratch.resize(total, 0.0);
+        }
+        let mut rest = &mut scratch[..total];
+        dabs.map(|d| {
+            let (room, tail) = std::mem::take(&mut rest).split_at_mut(self.room(d));
+            rest = tail;
+            room
+        })
+        .collect()
+    }
+
+    /// Evaluate one dab: its kernel, and if `pickup` the wet paint under it read from `src`. The
+    /// kernel is written into `room`, which must hold [`WetCanvas::room`] values.
     ///
     /// The first half of laying one dab: float32 arithmetic per pixel, with the geometry above it
     /// in float64 (the split the numpy engine of 0.4 had, kept so the pixels stay the same).
-    pub fn footprint(
+    pub fn footprint<'a>(
         &self,
         d: &Dab,
         spans: Spans,
         src: Option<Source<'_>>,
-    ) -> (Footprint, Option<Pickup>) {
+        room: &'a mut [f32],
+    ) -> (Footprint<'a>, Option<Pickup>) {
         let mut fp = Footprint {
             skip: true,
             ..Default::default()
@@ -275,14 +322,8 @@ impl WetCanvas {
             }
         };
 
-        if spans == Spans::Ellipse {
-            let (ex, ey) = gauss::half_extents(sx, sy, d.theta, q_pad);
-            // the ellipse's area, but never more than the clipped square: a dab far larger than
-            // the canvas must not ask for more memory than the canvas has
-            let ellipse = std::f64::consts::PI * (ex + 2.0) * (ey + 2.0);
-            fp.k.reserve(ellipse.min(((x1 - x0) * (y1 - y0)) as f64) as usize);
-        }
         let (mut wsum, mut kwsum) = (0f64, 0f64);
+        let mut used = 0;
         let mut under = [0f64; 3];
         for py in ry0..ry1 {
             let dy = (py as f32 + 0.5) - y32;
@@ -301,14 +342,16 @@ impl WetCanvas {
                     }
                 },
             };
-            let off = fp.k.len();
+            let len = cx1 - cx0;
             fp.spans.push(Span {
                 y: py,
                 x0: cx0,
-                len: cx1 - cx0,
-                off,
+                len,
+                off: used,
             });
-            for px in cx0..cx1 {
+            let row = &mut room[used..used + len];
+            used += len;
+            for (slot, px) in row.iter_mut().zip(cx0..cx1) {
                 let dx = (px as f32 + 0.5) - x32;
                 let u = dx * ux + u0;
                 let v = dx * vx + v0;
@@ -318,7 +361,7 @@ impl WetCanvas {
                     Some(g) => k32 * (g_keep + g_amt * g[py * self.width + px]),
                     None => k32,
                 };
-                fp.k.push(k);
+                *slot = k;
                 wsum += k as f64;
                 if let Some(src) = src {
                     let i = (py - src.oy) * src.w + (px - src.ox);
@@ -333,6 +376,8 @@ impl WetCanvas {
         if wsum <= 1e-8 {
             return (fp, None);
         }
+        let room: &'a [f32] = room;
+        fp.k = &room[..used];
         fp.skip = false;
         fp.alpha = d.alpha as f32;
         fp.y_min = fp.spans.first().map_or(0, |s| s.y);
@@ -347,7 +392,7 @@ impl WetCanvas {
     /// Lay footprints down in order, "over" compositing, each in its colour. Rows are split into
     /// bands that run in parallel; within a pixel the order and the arithmetic are those of a
     /// one-dab-at-a-time engine, so the result does not depend on the number of threads.
-    pub fn composite(&mut self, prints: &[(&Footprint, [f32; 3])]) {
+    pub fn composite(&mut self, prints: &[(&Footprint<'_>, [f32; 3])]) {
         let w = self.width;
         self.rgb
             .par_chunks_mut(BAND * w * 3)
