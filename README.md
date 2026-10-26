@@ -156,7 +156,7 @@ kiku, 640², supersample 2, on a 2-core VM:
 | Rust, 2 threads | 3.5 s |
 
 ```bash
-cargo run --release --example bench -- examples/kiku.flower.json --ss 2   # time a paint
+cargo bench -p paintcode                                 # the example flowers on one core and on all, compared with the last run
 ```
 
 ## Tests
