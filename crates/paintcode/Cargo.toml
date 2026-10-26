@@ -7,6 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+# cargo bench runs benches/ only, not the unit tests in bench mode
+[lib]
+bench = false
+
 [dependencies]
 png.workspace = true
 rayon.workspace = true
@@ -15,3 +19,8 @@ serde_json.workspace = true
 [dev-dependencies]
 rayon.workspace = true
 flate2.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "paint"
+harness = false

@@ -58,7 +58,16 @@ canvas.peek(x=20, y=100), canvas.crop(x=0, y=0, width=200, height=100)
 
 Files are told apart by their bytes, not their names: `load_flower` reads JSON, or the flower on a PNG (a PNG without one is an error); `load_canvas` takes any PNG and only its pixels.
 
-The same flower always produces the same pixels. Jitter is counter-based: every random number is a hash of (seed, petal index, dab index, slot), so editing or lengthening one petal never moves the jitter of another, and appending petals leaves the ones before them alone. To keep working on a painting, load its flower, append petals and paint it again.
+The same flower always produces the same pixels. Jitter is counter-based: every random number is a hash of (seed, petal, dab index, slot), so editing or lengthening one petal never moves the jitter of another, and appending petals leaves the ones before them alone. A petal is its index unless it has an `id` or a `group`; with one, taking a petal out of the middle leaves the others as they were. To keep working on a painting, load its flower, append petals and paint it again. A `Painting` remembers where it stopped, so painting again paints only the new petals, and taking back the last petal, or the petals just appended, costs only a copy; it keeps two float canvases at the painted size to do it:
+
+```python
+painting = pc.Painting()
+canvas = painting.flower_to_canvas(flower=flower, supersample=2)
+flower["petals"].append({"brush": "ink", "color": "#223", "points": [[60, 40], [340, 60]]})
+canvas = painting.flower_to_canvas(flower=flower, supersample=2)   # paints one petal
+```
+
+Version 0.7 paints the same pixels as 0.6, but for two changes. A smudge that starts off the canvas loads the colour where it meets the canvas, where it loaded black (in kiku, one blender petal, 1,464 pixels by up to 24/255). The dab profile is read from a table per hardness instead of `powf` and `exp`, 25% faster on one thread, at most 1.1e-4 off the formula (2 of kiku's 1,228,800 values move by 1/255). It adds `Painting`, which paints only the petals a flower gained since the last paint, and the petal keys `id` and `group`, which keep a petal's jitter when others are taken out; a flower without them paints as before.
 
 Version 0.6 paints the same pixels as 0.5 under new names: a scene is a flower, a stroke is a petal, `PRESETS` is `BRUSHES` (and a brush object names the brush it starts from with `"brush"`, not `"preset"`), and the flower is flat (`width`, `height`, `background` and `seed` at the top; `supersample` is an option of the paint). The `.petal` ZIP is gone: a `.flower.json` holds the flower and a `.flower.png` carries it on its canvas. Painting over a base image is gone too. A `.coat.ply` keeps every dab exactly, so it is larger than 0.5's `.ply`.
 
@@ -84,6 +93,8 @@ Version 0.5 paints the same pixels as 0.4 (within 1/255 on the PNG, 1e-5 on the 
 - **brush** is a name from `paintcode.BRUSHES`, a name from `brushes`, or an inline object `{"brush": ..., ...}`. Any brush field can also be overridden directly on the petal.
 - **color** is `[r, g, b]` (0..255) or `"#rrggbb"`. `null` loads the brush with whatever is under its first touch, which makes it a smudge.
 - **smooth** (default `true`) runs a centripetal Catmull-Rom spline through the points; `false` keeps straight segments.
+- **id** (optional) names the petal, once in the flower. Its jitter is keyed by the name, so taking out, adding or reordering other petals never changes how it lies.
+- **group** (optional) names the petals it belongs with, such as `"sky"`. A petal in a group, and without an id, is keyed by the group and its place among them, so only a change in its own group can move its jitter.
 
 ## The dab
 
@@ -145,28 +156,33 @@ The engine is Rust: one library, `crates/paintcode`, with one module per part of
 
 Up to 0.4 a numpy engine in this package was the reference, and the core was checked against it at 1e-5 on the float canvas (2.4e-7 at worst on kiku). 0.5 retired it: its output for the examples and a feature matrix is frozen in `tests/golden/`, and the core is checked against those files.
 
-A petal is painted in two parallel phases: every dab's kernel and the wet paint under it are evaluated independently (pickup reads the canvas as it was when the petal began), then the dabs are composited in order, one band of rows per thread. The fast path also skips the parts of each dab's square that lie outside its $q \le 9$ ellipse. None of this changes a bit: the tests render with the reference path (whole squares, `powf` everywhere, one thread) and require identical output.
+A petal is painted in two parallel phases: every dab's kernel and the wet paint under it are evaluated independently (pickup reads the canvas as it was when the petal began), then the dabs are composited in order, one band of rows per thread. The fast path also skips the parts of each dab's square that lie outside its $q \le 9$ ellipse. None of this changes a bit: the tests render with the reference path (whole squares, one thread) and require identical output. The profile itself is read from a table per hardness, 8192 steps over $0 \le q \le 9$ with linear interpolation, instead of `powf` and `exp` on every pixel: at most 1.1e-4 off the formula, for the hardest brush.
 
-kiku, 640², supersample 2, on a 2-core VM:
+kiku, 640², supersample 2 (87,110 dabs), from `cargo bench` on an M2 Pro:
 
-| engine | time |
-|---|---|
-| numpy (0.4) | 52 s |
-| Rust, 1 thread | 7.0 s |
-| Rust, 2 threads | 3.5 s |
+| threads | time | dabs per second |
+|---|---|---|
+| 1 | 1.83 s | 47.6 k |
+| 10 | 0.48 s | 182 k |
+
+On the 2-core VM where the numpy engine of 0.4 took 52 s, the Rust core took 3.5 s on both cores.
 
 ```bash
-cargo run --release --example bench -- examples/kiku.flower.json --ss 2   # time a paint
+cargo bench -p paintcode                                 # the example flowers on one core and on all, compared with the last run
 ```
 
 ## Tests
 
 ```bash
-cargo test --release -p paintcode -- --include-ignored   # the engine: behaviour, golden output, coats, fast path = reference path, layering
+cargo test --release -p paintcode -- --include-ignored   # the engine: behaviour, golden snapshots, coats, fast path = reference path, layering
 uv run pytest                                            # the Python face: arguments, files, errors
 ```
 
-The golden files were made with the numpy engine at 0.4 by `tests/golden/make.py`, which retired with that engine; `git show 02f2aea:tests/golden/make.py` has it. Since 0.6 the manifest and the flower files are kept by hand, and the two `.coat.ply` files are 0.6's own: their 3DGS fields were checked against the PLY the numpy engine wrote before they replaced it.
+The engine tests write the golden snapshots in `tests/golden/` again every run, and git shows what moved; CI fails when a run changes them, so a change that moves pixels commits them with it. `.gitattributes` gives the PNGs a `png` diff driver, and one line points it at an example in this repo, so `git diff` says how many values of each image moved and by how much instead of its size:
+
+```bash
+git config diff.png.command 'cargo run -q --release -p paintcode --example diff --'
+``` Up to 0.6 they were the numpy engine's output at 0.4, made by `tests/golden/make.py` (`git show 02f2aea:tests/golden/make.py` has it), and the core matched them as 0.5 describes.
 
 ## Credits
 

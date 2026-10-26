@@ -29,6 +29,17 @@ def test_the_canvas_is_the_golden_painting():
     assert np.abs(got - want).max() <= 1
 
 
+def test_a_painting_paints_what_flower_to_canvas_paints():
+    painting = paintcode.Painting()
+    flower = {**FLOWER, "petals": []}
+    for petal in FLOWER["petals"]:
+        flower["petals"].append(petal)
+        got = painting.flower_to_canvas(flower=flower, supersample=2)
+        assert got.pixels() == paintcode.flower_to_canvas(flower=flower, supersample=2).pixels()
+    with pytest.raises(ValueError, match="supersample"):
+        painting.flower_to_canvas(flower=flower, supersample=0)
+
+
 def test_a_path_may_be_a_str_or_a_pathlike(tmp_path):
     path = GOLDEN / "features.flower.json"
     assert paintcode.load_flower(path) == paintcode.load_flower(str(path)) == FLOWER

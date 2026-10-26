@@ -169,6 +169,43 @@ impl Coat {
     }
 }
 
+/// A flower being worked on, which remembers where it stopped: painting a flower again with
+/// petals appended paints only the new ones, and taking back the last petal, or the petals just
+/// appended, costs only a copy. The canvas is the same as flower_to_canvas paints.
+#[pyclass(module = "paintcode")]
+#[derive(Default)]
+struct Painting(paintcode::Painting);
+
+#[pymethods]
+impl Painting {
+    #[new]
+    fn new() -> Painting {
+        Painting::default()
+    }
+
+    /// Paint a flower, starting where an earlier one stopped if it can: its canvas.
+    #[pyo3(signature = (*, flower, scale = 1.0, supersample = 1))]
+    fn flower_to_canvas(
+        &mut self,
+        py: Python<'_>,
+        flower: &Bound<'_, PyAny>,
+        scale: f64,
+        supersample: i64,
+    ) -> PyResult<Canvas> {
+        let flower = to_flower(py, flower)?;
+        let o = opts(scale, supersample);
+        let painting = &mut self.0;
+        let canvas = py
+            .detach(|| painting.flower_to_canvas(&flower, &o))
+            .map_err(value_error)?;
+        Ok(Canvas(canvas))
+    }
+
+    fn __repr__(&self) -> &'static str {
+        "<Painting>"
+    }
+}
+
 // ------------------------------------------------------------------------------------- files
 
 /// The flower in a `.flower.json`, or on a `.flower.png`. A PNG without a flower is an error.
@@ -308,6 +345,7 @@ fn flower_off_canvas<'py>(
 fn paintcode_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Canvas>()?;
     m.add_class::<Coat>()?;
+    m.add_class::<Painting>()?;
     m.add_function(wrap_pyfunction!(load_flower, m)?)?;
     m.add_function(wrap_pyfunction!(save_flower, m)?)?;
     m.add_function(wrap_pyfunction!(load_canvas, m)?)?;

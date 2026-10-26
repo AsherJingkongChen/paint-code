@@ -29,9 +29,9 @@ struct Plan {
     mix_exp: f64,
 }
 
-fn plan(seed: i64, brush: &Brush, sid: i64, path: &[Sample]) -> Vec<Plan> {
+fn plan(seed: i64, brush: &Brush, key: i64, path: &[Sample]) -> Vec<Plan> {
     let jitter = |n: i64, slot: i64, amount: f64| {
-        -amount + 2.0 * amount * rng::uniform(&[seed, rng::JITTER, sid, n, slot])
+        -amount + 2.0 * amount * rng::uniform(&[seed, rng::JITTER, key, n, slot])
     };
     let k = brush.sigma_scale();
     let mut load = brush.load;
@@ -100,19 +100,18 @@ pub struct Painted {
     pub carried: [f32; 3],
 }
 
-/// Lay one petal onto the canvas.
+/// Lay one petal onto the canvas. `key` keys its jitter: what the flower's `jitter_keys` gives it.
 pub fn paint_petal(
     canvas: &mut WetCanvas,
+    key: i64,
     brush: &Brush,
     color: &Color,
     points: &[[f64; 4]],
     smooth: bool,
     opts: Options,
 ) -> Painted {
-    let sid = canvas.petals;
-    canvas.petals += 1;
     let path = samples(points, brush, smooth);
-    let plans = plan(canvas.seed, brush, sid, &path);
+    let plans = plan(canvas.seed, brush, key, &path);
     if plans.is_empty() {
         let carried = match color {
             Color::Rgb(c) => *c,
@@ -123,10 +122,22 @@ pub fn paint_petal(
     if brush.grain > 0.0 {
         canvas.prepare_grain(brush.grain_scale);
     }
+    canvas.prepare_profile(brush.hardness);
     let mut carried: [f32; 3] = match color {
         Color::Rgb(c) => *c,
-        // a smudge loads the brush with what is under the first sample, before any jitter
-        Color::Smudge => canvas.sample(path[0].x, path[0].y, brush.radius(path[0].p)),
+        // a smudge loads the brush with what is under it where it first meets the canvas,
+        // before any jitter; a path that never meets it lays nothing there is to see, so it
+        // takes the nearest edge
+        Color::Smudge => path
+            .iter()
+            .find_map(|s| canvas.sample(s.x, s.y, brush.radius(s.p)))
+            .or_else(|| {
+                let s = &path[0];
+                let x = s.x.clamp(0.0, canvas.width as f64 - 0.5);
+                let y = s.y.clamp(0.0, canvas.height as f64 - 0.5);
+                canvas.sample(x, y, brush.radius(s.p))
+            })
+            .expect("a point on the canvas has a pixel under it"),
     };
     let pickup = brush.pickup > 0.0;
 

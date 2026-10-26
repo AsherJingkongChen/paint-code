@@ -72,6 +72,23 @@ class Coat:
     def supersample(self) -> int: ...
     def __len__(self) -> int: ...
 
+class Painting:
+    """A flower being worked on, which remembers where it stopped: painting a flower again with
+    petals appended paints only the new ones, and taking back the last petal, or the petals just
+    appended, costs only a copy. The canvas is the same as flower_to_canvas paints.
+
+        painting = Painting()
+        canvas = painting.flower_to_canvas(flower=flower)
+        flower["petals"].append(petal)
+        canvas = painting.flower_to_canvas(flower=flower)   # paints one petal
+
+    It keeps two float canvases at the painted size, 16 bytes a pixel each (supersample 2 makes
+    that four times as many pixels)."""
+
+    def __init__(self) -> None: ...
+    def flower_to_canvas(self, *, flower: Flower, scale: float = 1.0, supersample: int = 1) -> Canvas:
+        """Paint a flower, starting where an earlier one stopped if it can: its canvas."""
+
 def load_flower(path: Path) -> Flower:
     """The flower in a .flower.json, or on a .flower.png; keys in their written order. A PNG with
     no flower on it is an error."""
