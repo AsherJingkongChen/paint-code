@@ -15,8 +15,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
       - uses: dtolnay/rust-toolchain@stable
-      - name: Engine tests (behaviour, golden output from the 0.4 numpy engine, fast path = reference path, layering)
+      - name: Engine tests (behaviour, golden snapshots, fast path = reference path, layering)
         run: cargo test --release -p paintcode -- --include-ignored
+      - name: The golden snapshots it wrote are the ones committed
+        run: git diff --exit-code --stat -- tests/golden
       - name: The engine built as a Python module (from uv.lock)
         run: uv sync --locked
       - name: Python tests (arguments, bytes, errors)

@@ -172,11 +172,11 @@ cargo bench -p paintcode                                 # the example flowers o
 ## Tests
 
 ```bash
-cargo test --release -p paintcode -- --include-ignored   # the engine: behaviour, golden output, coats, fast path = reference path, layering
+cargo test --release -p paintcode -- --include-ignored   # the engine: behaviour, golden snapshots, coats, fast path = reference path, layering
 uv run pytest                                            # the Python face: arguments, files, errors
 ```
 
-The golden files were made with the numpy engine at 0.4 by `tests/golden/make.py`, which retired with that engine; `git show 02f2aea:tests/golden/make.py` has it. Since 0.6 the manifest and the flower files are kept by hand, and the two `.coat.ply` files are 0.6's own: their 3DGS fields were checked against the PLY the numpy engine wrote before they replaced it.
+The engine tests write the golden snapshots in `tests/golden/` again every run, and git shows what moved; CI fails when a run changes them, so a change that moves pixels commits them with it. `.gitattributes` gives the PNGs the `dssim` diff driver; with [dssim](https://github.com/kornelski/dssim) installed and `git config diff.dssim.command 'f() { dssim "$2" "$5"; }; f'`, `git diff` prints how far each image moved instead of its size. Up to 0.6 they were the numpy engine's output at 0.4, made by `tests/golden/make.py` (`git show 02f2aea:tests/golden/make.py` has it), and the core matched them as 0.5 describes.
 
 ## Credits
 

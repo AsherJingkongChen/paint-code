@@ -1,23 +1,23 @@
-//! The core against the numpy engine's frozen output (tests/golden, made at paintcode 0.4, the
-//! last version with that engine, by tests/golden/make.py, whose last version is at 02f2aea).
+//! Snapshots of what the core paints, in tests/golden. Every case writes its files again and git
+//! shows what moved; CI fails when a run changes them (`git diff --exit-code -- tests/golden`),
+//! so a change that moves pixels commits its snapshots with it. `.gitattributes` gives the PNGs
+//! the `dssim` diff driver, so git can say how far an image moved (see the README).
 //!
-//! Each case checks the 8-bit PNG (no value off by more than 1/255, and at most one value in
-//! 10,000 off at all: libm rounding can flip a value that sits on a half step, a real change
-//! moves many), the float canvas within 1e-5 plus half a 16-bit step for the small cases, and
-//! the coat of every case, written as a PLY and read back, which must lay the same canvas again bit
-//! for bit. The soft cases also keep their coat file, written at 0.6 after its 3DGS fields were
-//! checked against the PLY the numpy engine wrote; it must come out byte for byte the same.
+//! Each case writes the 8-bit PNG, the float canvas quantised to 16 bits for the small cases and
+//! the coat where the case keeps it, and checks that its coat, written as a PLY and read back,
+//! lays the same canvas again bit for bit.
+//!
+//! Up to 0.6 these files were what the numpy engine of 0.4 painted (tests/golden/make.py, whose
+//! last version is at 02f2aea); 0.7 painted them anew.
 
-use std::io::Read;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use paintcode::{
-    Flower, RenderOpts, decode_canvas, decode_coat, encode_coat, flower_to_coat, lay_coat,
+    Flower, RenderOpts, decode_coat, encode_canvas, encode_coat, flower_to_coat, lay_coat,
     paint_flower,
 };
 use serde_json::Value;
-
-const GATE: f32 = 1e-5 + 0.5 / 65535.0;
 
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -54,40 +54,6 @@ fn check(name: &str) {
     );
     assert_eq!((canvas.width, canvas.height), (w, h), "{name}: size");
 
-    // the PNG: the same, but for a few values one step off where 8-bit rounding sits on a tie
-    let want = decode_canvas(&std::fs::read(golden(&format!("{name}.png"))).unwrap()).unwrap();
-    let got = canvas.dry();
-    let diffs: Vec<i16> = want
-        .pixels
-        .iter()
-        .zip(&got.pixels)
-        .map(|(a, b)| (*a as i16 - *b as i16).abs())
-        .filter(|&d| d > 0)
-        .collect();
-    let worst = diffs.iter().copied().max().unwrap_or(0);
-    let allowed = (want.pixels.len() / 10_000).max(8);
-    assert!(worst <= 1, "{name}: PNG differs by {worst}/255");
-    assert!(
-        diffs.len() <= allowed,
-        "{name}: {} PNG values differ (at most {allowed} may)",
-        diffs.len()
-    );
-
-    // the float canvas, where it was kept
-    if let Some(f) = case.get("float").and_then(Value::as_str) {
-        let mut raw = Vec::new();
-        flate2::read::GzDecoder::new(std::fs::File::open(golden(f)).unwrap())
-            .read_to_end(&mut raw)
-            .unwrap();
-        assert_eq!(raw.len(), w * h * 3 * 2, "{name}: float size");
-        let mut gap = 0f32;
-        for (b, v) in raw.chunks_exact(2).zip(&canvas.rgb) {
-            let q = u16::from_le_bytes([b[0], b[1]]) as f32 / 65535.0;
-            gap = gap.max((q - v.clamp(0.0, 1.0)).abs());
-        }
-        assert!(gap <= GATE, "{name}: float canvas differs by {gap:e}");
-    }
-
     // the coat, through its file and back: the same canvas, every bit
     let coat = flower_to_coat(&flower, &opts).unwrap();
     let ply = encode_coat(&coat);
@@ -97,19 +63,21 @@ fn check(name: &str) {
         "{name}: the coat lays another canvas"
     );
 
-    // the coat file frozen at 0.6, where it was kept: the same bytes, 3DGS fields and all
+    std::fs::write(golden(&format!("{name}.png")), encode_canvas(&canvas.dry())).unwrap();
+    if let Some(f) = case.get("float").and_then(Value::as_str) {
+        let q: Vec<u8> = canvas
+            .rgb
+            .iter()
+            .flat_map(|v| ((v.clamp(0.0, 1.0) * 65535.0).round() as u16).to_le_bytes())
+            .collect();
+        let mut gz = flate2::GzBuilder::new()
+            .mtime(0)
+            .write(Vec::new(), flate2::Compression::best());
+        gz.write_all(&q).unwrap();
+        std::fs::write(golden(f), gz.finish().unwrap()).unwrap();
+    }
     if let Some(f) = case.get("coat").and_then(Value::as_str) {
-        let want = std::fs::read(golden(f)).unwrap();
-        if ply != want {
-            let want = decode_coat(&want).unwrap();
-            let first = coat.dabs.iter().zip(&want.dabs).position(|(a, b)| a != b);
-            panic!(
-                "{name}: the coat is not {f} ({} dabs against {}, first different: {:?})",
-                coat.dabs.len(),
-                want.dabs.len(),
-                first.map(|i| (i, coat.dabs[i], want.dabs[i]))
-            );
-        }
+        std::fs::write(golden(f), &ply).unwrap();
     }
 }
 
