@@ -100,7 +100,28 @@ pub struct Painted {
     pub carried: [f32; 3],
 }
 
-/// Lay one petal onto the canvas. `key` keys its jitter: what the flower's `jitter_keys` gives it.
+/// A petal planned: its path and where each dab goes, before any pixel is touched. Planning
+/// needs the seed and nothing of the canvas, so the next petal can be planned while this one
+/// is painted.
+pub struct Planned {
+    path: Vec<Sample>,
+    plans: Vec<Plan>,
+}
+
+/// Plan one petal. `key` keys its jitter: what the flower's `jitter_keys` gives it.
+pub fn plan_petal(
+    seed: i64,
+    key: i64,
+    brush: &Brush,
+    points: &[[f64; 4]],
+    smooth: bool,
+) -> Planned {
+    let path = samples(points, brush, smooth);
+    let plans = plan(seed, brush, key, &path);
+    Planned { path, plans }
+}
+
+/// Lay one petal onto the canvas: [`plan_petal`], then [`paint_planned`].
 pub fn paint_petal(
     canvas: &mut WetCanvas,
     key: i64,
@@ -110,8 +131,19 @@ pub fn paint_petal(
     smooth: bool,
     opts: Options,
 ) -> Painted {
-    let path = samples(points, brush, smooth);
-    let plans = plan(canvas.seed, brush, key, &path);
+    let planned = plan_petal(canvas.seed, key, brush, points, smooth);
+    paint_planned(canvas, &planned, brush, color, opts)
+}
+
+/// Lay a planned petal onto the canvas, with the brush it was planned with.
+pub fn paint_planned(
+    canvas: &mut WetCanvas,
+    planned: &Planned,
+    brush: &Brush,
+    color: &Color,
+    opts: Options,
+) -> Painted {
+    let (path, plans) = (&planned.path, &planned.plans);
     if plans.is_empty() {
         let carried = match color {
             Color::Rgb(c) => *c,
