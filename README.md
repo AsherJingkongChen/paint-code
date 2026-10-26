@@ -178,7 +178,11 @@ cargo test --release -p paintcode -- --include-ignored   # the engine: behaviour
 uv run pytest                                            # the Python face: arguments, files, errors
 ```
 
-The engine tests write the golden snapshots in `tests/golden/` again every run, and git shows what moved; CI fails when a run changes them, so a change that moves pixels commits them with it. `.gitattributes` gives the PNGs the `dssim` diff driver; with [dssim](https://github.com/kornelski/dssim) installed and `git config diff.dssim.command 'f() { dssim "$2" "$5"; }; f'`, `git diff` prints how far each image moved instead of its size. Up to 0.6 they were the numpy engine's output at 0.4, made by `tests/golden/make.py` (`git show 02f2aea:tests/golden/make.py` has it), and the core matched them as 0.5 describes.
+The engine tests write the golden snapshots in `tests/golden/` again every run, and git shows what moved; CI fails when a run changes them, so a change that moves pixels commits them with it. `.gitattributes` gives the PNGs a `png` diff driver, and one line points it at an example in this repo, so `git diff` says how many values of each image moved and by how much instead of its size:
+
+```bash
+git config diff.png.command 'cargo run -q --release -p paintcode --example diff --'
+``` Up to 0.6 they were the numpy engine's output at 0.4, made by `tests/golden/make.py` (`git show 02f2aea:tests/golden/make.py` has it), and the core matched them as 0.5 describes.
 
 ## Credits
 

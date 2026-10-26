@@ -1,7 +1,7 @@
 //! Snapshots of what the core paints, in tests/golden. Every case writes its files again and git
 //! shows what moved; CI fails when a run changes them (`git diff --exit-code -- tests/golden`),
-//! so a change that moves pixels commits its snapshots with it. `.gitattributes` gives the PNGs
-//! the `dssim` diff driver, so git can say how far an image moved (see the README).
+//! so a change that moves pixels commits its snapshots with it. examples/diff.rs is the diff
+//! driver that lets git say how far an image moved (see the README).
 //!
 //! Each case writes the 8-bit PNG, the float canvas quantised to 16 bits for the small cases and
 //! the coat where the case keeps it, and checks that its coat, written as a PLY and read back,
