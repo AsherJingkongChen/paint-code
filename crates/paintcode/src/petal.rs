@@ -11,5 +11,5 @@
 mod paint;
 mod path;
 
-pub use paint::{Options, Painted, paint_petal};
+pub use paint::{Options, Painted, Planned, paint_petal, paint_planned, plan_petal};
 pub use path::{Sample, samples};

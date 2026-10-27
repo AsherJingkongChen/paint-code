@@ -14,7 +14,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - uses: dtolnay/rust-toolchain@stable
+      - name: The pinned nightly from rust-toolchain.toml
+        run: rustup toolchain install
       - name: Engine tests (behaviour, golden snapshots, fast path = reference path, layering)
         run: cargo test --release -p paintcode -- --include-ignored
       - name: The golden snapshots it wrote are the ones committed
@@ -24,11 +25,11 @@ jobs:
       - name: Python tests (arguments, bytes, errors)
         run: uv run pytest -q
 
-  msrv:
-    # rust-version in Cargo.toml says 1.85; this keeps that true
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.85
-      - name: Build the engine and the binding with the oldest supported Rust
+      - name: The pinned nightly from rust-toolchain.toml
+        run: rustup toolchain install
+      - name: Everything builds, the binding and the benches included
         run: cargo check --workspace --all-targets

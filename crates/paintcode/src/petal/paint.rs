@@ -1,7 +1,6 @@
 use crate::flower::{Brush, Color};
 use crate::math::rng;
 use crate::render::{Dab, Footprint, Pickup, Spans, WetCanvas};
-use rayon::prelude::*;
 
 use super::path::{Sample, samples};
 
@@ -100,7 +99,28 @@ pub struct Painted {
     pub carried: [f32; 3],
 }
 
-/// Lay one petal onto the canvas. `key` keys its jitter: what the flower's `jitter_keys` gives it.
+/// A petal planned: its path and where each dab goes, before any pixel is touched. Planning
+/// needs the seed and nothing of the canvas, so the next petal can be planned while this one
+/// is painted.
+pub struct Planned {
+    path: Vec<Sample>,
+    plans: Vec<Plan>,
+}
+
+/// Plan one petal. `key` keys its jitter: what the flower's `jitter_keys` gives it.
+pub fn plan_petal(
+    seed: i64,
+    key: i64,
+    brush: &Brush,
+    points: &[[f64; 4]],
+    smooth: bool,
+) -> Planned {
+    let path = samples(points, brush, smooth);
+    let plans = plan(seed, brush, key, &path);
+    Planned { path, plans }
+}
+
+/// Lay one petal onto the canvas: [`plan_petal`], then [`paint_planned`].
 pub fn paint_petal(
     canvas: &mut WetCanvas,
     key: i64,
@@ -110,8 +130,19 @@ pub fn paint_petal(
     smooth: bool,
     opts: Options,
 ) -> Painted {
-    let path = samples(points, brush, smooth);
-    let plans = plan(canvas.seed, brush, key, &path);
+    let planned = plan_petal(canvas.seed, key, brush, points, smooth);
+    paint_planned(canvas, &planned, brush, color, opts)
+}
+
+/// Lay a planned petal onto the canvas, with the brush it was planned with.
+pub fn paint_planned(
+    canvas: &mut WetCanvas,
+    planned: &Planned,
+    brush: &Brush,
+    color: &Color,
+    opts: Options,
+) -> Painted {
+    let (path, plans) = (&planned.path, &planned.plans);
     if plans.is_empty() {
         let carried = match color {
             Color::Rgb(c) => *c,
@@ -142,11 +173,7 @@ pub fn paint_petal(
     let pickup = brush.pickup > 0.0;
 
     // chunks of dabs whose kernels fit the budget
-    let area = |p: &Plan| {
-        canvas
-            .bounds(&p.dab)
-            .map_or(0, |(x0, x1, y0, y1)| (x1 - x0) * (y1 - y0))
-    };
+    let area = |p: &Plan| canvas.room(&p.dab);
     let mut chunks: Vec<std::ops::Range<usize>> = Vec::new();
     let (mut start, mut used) = (0usize, 0usize);
     for (i, p) in plans.iter().enumerate() {
@@ -170,6 +197,9 @@ pub fn paint_petal(
         canvas.snapshot(x0, y0, x1, y1)
     });
 
+    // the kernels go in the canvas's scratch buffer, taken out so the canvas can be read and
+    // painted while they are borrowed, and put back for the next petal
+    let mut scratch = std::mem::take(&mut canvas.scratch);
     for range in chunks {
         let src = match &snapshot {
             Some((rgb, wet, origin)) => Some(WetCanvas::view(rgb, wet, *origin)),
@@ -177,10 +207,9 @@ pub fn paint_petal(
             None => None,
         };
         let cv: &WetCanvas = canvas;
-        let evaluated: Vec<(Footprint, Option<Pickup>)> = plans[range.clone()]
-            .par_iter()
-            .map(|p| cv.footprint(&p.dab, opts.spans, src))
-            .collect();
+        let dabs = plans[range.clone()].iter().map(|p| &p.dab);
+        let evaluated: Vec<(Footprint, Option<Pickup>)> =
+            cv.footprints(dabs, opts.spans, src, &mut scratch);
         // carry the colour along: each dab is laid in the colour the brush holds before its own pickup
         let mut colours = Vec::with_capacity(evaluated.len());
         for (plan, (_, under)) in plans[range.clone()].iter().zip(&evaluated) {
@@ -209,6 +238,7 @@ pub fn paint_petal(
             }
         }
     }
+    canvas.scratch = scratch;
     Painted {
         dabs: plans.len(),
         carried,

@@ -5,8 +5,6 @@ members = ["crates/paintcode", "bindings/python"]
 [workspace.package]
 version = "0.7.0"
 edition = "2024"
-# pyo3 0.30 and edition 2024 both need 1.85; CI checks it
-rust-version = "1.85"
 license = "BSD-3-Clause"
 repository = "https://github.com/AsherJingkongChen/paintcode"
 
@@ -16,7 +14,7 @@ serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 rayon = "1"
 png = "0.18"
 flate2 = "1"
-# 0.8 needs Rust 1.86; terminal output only, no plots
+# terminal output only, no plots
 criterion = { version = "0.7", default-features = false, features = ["cargo_bench_support"] }
 
 # opt-level "s" renders as fast as 3 and is 38% smaller (measured in the commit that set it).

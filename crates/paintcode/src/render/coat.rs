@@ -1,7 +1,5 @@
 //! A coat: every dab of a flower in the order it was laid, and what it takes to lay them again.
 
-use rayon::prelude::*;
-
 use super::{Dab, Footprint, Spans, WetCanvas};
 
 /// All the dabs of a painted flower, in order, with the colour each one carried.
@@ -41,11 +39,13 @@ pub fn lay_coat(coat: &Coat) -> Result<WetCanvas, String> {
         }
         canvas.prepare_profile(d.hardness);
     }
+    let mut scratch = Vec::new();
     for batch in coat.dabs.chunks(BATCH) {
         let cv: &WetCanvas = &canvas;
-        let prints: Vec<Footprint> = batch
-            .par_iter()
-            .map(|d| cv.footprint(d, Spans::Ellipse, None).0)
+        let prints: Vec<Footprint> = cv
+            .footprints(batch.iter(), Spans::Ellipse, None, &mut scratch)
+            .into_iter()
+            .map(|(fp, _)| fp)
             .collect();
         let coloured: Vec<(&Footprint, [f32; 3])> =
             prints.iter().zip(batch).map(|(f, d)| (f, d.rgb)).collect();

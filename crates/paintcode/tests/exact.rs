@@ -8,20 +8,20 @@ fn flower(name: &str) -> Flower {
     Flower::from_json(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
 
-fn reference(s: &Flower) -> Vec<f32> {
+fn reference(s: &Flower) -> [Vec<f32>; 3] {
     let mut o = RenderOpts::default();
     o.petal.spans = Spans::Square;
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(1)
         .build()
         .unwrap();
-    pool.install(|| paint_flower(s, &o).unwrap().rgb)
+    pool.install(|| paint_flower(s, &o).unwrap().planes)
 }
 
 #[test]
 fn fast_path_is_bit_identical_on_the_brush_sheet() {
     let s = flower("brush_sheet.flower.json");
-    let fast = paint_flower(&s, &RenderOpts::default()).unwrap().rgb;
+    let fast = paint_flower(&s, &RenderOpts::default()).unwrap().planes;
     assert!(fast == reference(&s), "the fast path changed pixels");
 }
 
@@ -31,7 +31,7 @@ fn chunking_and_snapshots_do_not_change_pixels() {
     let s = flower("brush_sheet.flower.json");
     let mut o = RenderOpts::default();
     o.petal.budget = 2_000;
-    assert!(paint_flower(&s, &o).unwrap().rgb == reference(&s));
+    assert!(paint_flower(&s, &o).unwrap().planes == reference(&s));
 }
 
 #[test]

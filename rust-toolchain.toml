@@ -1,0 +1,5 @@
+# std::simd (portable_simd) is nightly only. The date is pinned so that a build is the same build
+# everywhere; moving it is a commit of its own.
+[toolchain]
+channel = "nightly-2026-10-20"
+components = ["rustfmt", "clippy"]

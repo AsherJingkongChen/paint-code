@@ -30,7 +30,8 @@ impl Profile {
 
     pub fn new(n: f32) -> Profile {
         let n = n as f64;
-        let table = (0..=Profile::STEPS)
+        // one entry past the end, so q = 9 reads it without a bounds clamp
+        let table = (0..=Profile::STEPS + 1)
             .map(|i| {
                 let q = i as f64 * CUTOFF_Q as f64 / Profile::STEPS as f64;
                 (-0.5 * q.powf(n)).exp() as f32
@@ -43,7 +44,7 @@ impl Profile {
     #[inline]
     pub fn at(&self, q: f32) -> f32 {
         let x = q * (Profile::STEPS as f32 / CUTOFF_Q);
-        let i = (x as usize).min(Profile::STEPS - 1);
+        let i = x as usize;
         let t = x - i as f32;
         let (a, b) = (self.table[i], self.table[i + 1]);
         a + (b - a) * t

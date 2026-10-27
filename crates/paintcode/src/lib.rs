@@ -20,6 +20,8 @@
 //! is the [`Canvas`]: [`flower_to_canvas`] and [`coat_to_canvas`]. A [`Painting`] remembers where
 //! it stopped, so a flower painted again only paints its new petals.
 
+#![feature(portable_simd)]
+
 pub mod flower;
 pub mod io;
 pub mod math;
@@ -182,14 +184,32 @@ fn lay_petals(
     scale: f64,
     opts: &RenderOpts,
 ) {
-    for (p, &key) in petals.iter().zip(keys) {
+    let seed = canvas.seed;
+    let plan = |i: usize| {
+        let p: &Petal = &petals[i];
         let brush = p.brush.scaled(scale);
         let pts: Vec<[f64; 4]> = p
             .points
             .iter()
             .map(|q| [q[0] * scale, q[1] * scale, q[2], q[3]])
             .collect();
-        petal::paint_petal(canvas, key, &brush, &p.color, &pts, p.smooth, opts.petal);
+        let planned = petal::plan_petal(seed, keys[i], &brush, &pts, p.smooth);
+        (brush, planned)
+    };
+    let n = petals.len().min(keys.len());
+    let mut next = (n > 0).then(|| plan(0));
+    for (i, p) in petals.iter().enumerate().take(n) {
+        let (brush, planned) = next.take().expect("planned before it is painted");
+        // the next petal is planned while this one is painted: planning reads no pixel
+        if render::alone() {
+            petal::paint_planned(canvas, &planned, &brush, &p.color, opts.petal);
+            next = (i + 1 < n).then(|| plan(i + 1));
+            continue;
+        }
+        (_, next) = rayon::join(
+            || petal::paint_planned(canvas, &planned, &brush, &p.color, opts.petal),
+            || (i + 1 < n).then(|| plan(i + 1)),
+        );
     }
 }
 
