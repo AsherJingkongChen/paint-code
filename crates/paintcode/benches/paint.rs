@@ -5,6 +5,10 @@
 //!
 //! again: kiku painted again by a Painting that holds it without its last petal (append), or
 //! with one petal more (take back), against painting it from the start.
+//!
+//! loop: the rest of an agent's round with kiku, on one thread, step by step: the flower's JSON
+//! read and written, the wet canvas dried to 8 bits, and the canvas encoded as a PNG with and
+//! without its flower on it, and decoded.
 use std::hint::black_box;
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -12,7 +16,10 @@ use std::time::{Duration, Instant};
 use criterion::{
     BatchSize, BenchmarkId, Criterion, SamplingMode, Throughput, criterion_group, criterion_main,
 };
-use paintcode::{Flower, Painting, RenderOpts, flower_to_coat, paint_flower};
+use paintcode::{
+    Flower, Painting, RenderOpts, decode_canvas, decode_flower, encode_canvas, encode_flower,
+    flower_on_canvas, flower_to_coat, paint_flower,
+};
 
 const CASES: [(&str, &str, i64); 3] = [
     ("kiku", "examples/kiku.flower.json", 1),
@@ -108,5 +115,47 @@ fn again(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, paint, again);
+fn round(c: &mut Criterion) {
+    let mut group = c.benchmark_group("loop");
+    let text = std::fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/kiku.flower.json"),
+    )
+    .unwrap();
+    let flower = decode_flower(&text).unwrap();
+    let pool = pool(1);
+    for supersample in [1, 2] {
+        let opts = RenderOpts {
+            supersample,
+            ..RenderOpts::default()
+        };
+        let wet = paint_flower(&flower, &opts).unwrap();
+        let canvas = wet.dry();
+        let on = flower_on_canvas(&flower, canvas.clone());
+        let png = encode_canvas(&on);
+        let ss = format!("ss{supersample}");
+        if supersample == 1 {
+            group.bench_function("parse", |b| {
+                b.iter(|| decode_flower(black_box(&text)).unwrap())
+            });
+            group.bench_function("save_flower", |b| {
+                b.iter(|| encode_flower(black_box(&flower)))
+            });
+        }
+        group.bench_function(BenchmarkId::new("dry", &ss), |b| {
+            b.iter(|| pool.install(|| black_box(&wet).dry()))
+        });
+        group.bench_function(BenchmarkId::new("png", &ss), |b| {
+            b.iter(|| pool.install(|| encode_canvas(black_box(&canvas))))
+        });
+        group.bench_function(BenchmarkId::new("png_flower", &ss), |b| {
+            b.iter(|| pool.install(|| encode_canvas(black_box(&on))))
+        });
+        group.bench_function(BenchmarkId::new("decode_png", &ss), |b| {
+            b.iter(|| pool.install(|| decode_canvas(black_box(&png)).unwrap()))
+        });
+    }
+    group.finish();
+}
+
+criterion_group!(benches, paint, again, round);
 criterion_main!(benches);
