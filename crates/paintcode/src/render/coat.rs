@@ -37,7 +37,6 @@ pub fn lay_coat(coat: &Coat) -> Result<WetCanvas, String> {
         if d.grain > 0.0 {
             canvas.prepare_grain(d.grain_scale);
         }
-        canvas.prepare_profile(d.hardness);
     }
     let mut scratch = Vec::new();
     for batch in coat.dabs.chunks(BATCH) {

@@ -16,39 +16,90 @@ pub fn sigma_scale(hardness: f64) -> f64 {
 /// Dabs are cut off where the squared Mahalanobis distance exceeds this.
 pub const CUTOFF_Q: f32 = 9.0;
 
-/// The profile `exp(-0.5 q^n)` for one exponent, tabulated over `0 <= q <= 9` and read with linear
-/// interpolation: a dab's pixels need neither `powf` nor `exp`.
-#[derive(Debug, Clone)]
+/// Lanes: values of `q` evaluated at once.
+pub const L: usize = 8;
+pub type F = std::simd::Simd<f32, L>;
+
+/// The profile `exp(-0.5 q^n)` for one exponent, eight values of `q` at a time, through
+/// polynomial `log2` and `exp2`: no table to gather from and no `powf`, so every lane runs in
+/// the vector unit. Every lane is computed on its own, so a value does not depend on its lane.
+#[derive(Debug, Clone, Copy)]
 pub struct Profile {
-    table: Vec<f32>,
+    n: f32,
 }
 
 impl Profile {
-    /// Intervals in the table: 32 KiB a profile, and at most 1.1e-4 off the formula (at the
-    /// hardest brush; 6e-8 for a Gaussian).
-    pub const STEPS: usize = 8192;
-
     pub fn new(n: f32) -> Profile {
-        let n = n as f64;
-        // one entry past the end, so q = 9 reads it without a bounds clamp
-        let table = (0..=Profile::STEPS + 1)
-            .map(|i| {
-                let q = i as f64 * CUTOFF_Q as f64 / Profile::STEPS as f64;
-                (-0.5 * q.powf(n)).exp() as f32
-            })
-            .collect();
-        Profile { table }
+        Profile { n }
     }
 
-    /// The profile at `q`, for `0 <= q <= 9`.
+    /// The profile at eight values of `q >= 0`.
     #[inline]
-    pub fn at(&self, q: f32) -> f32 {
-        let x = q * (Profile::STEPS as f32 / CUTOFF_Q);
-        let i = x as usize;
-        let t = x - i as f32;
-        let (a, b) = (self.table[i], self.table[i + 1]);
-        a + (b - a) * t
+    pub fn lanes(&self, q: F) -> F {
+        // exp(-0.5 q^n) = 2^(-0.5 log2(e) q^n), and q^n = 2^(n log2 q)
+        let qn = if self.n == 1.0 {
+            q
+        } else {
+            exp2(F::splat(self.n) * log2(q))
+        };
+        exp2(F::splat(-0.5 * std::f32::consts::LOG2_E) * qn)
     }
+
+    /// The profile at one value of `q >= 0`: the same bits as a lane of [`Profile::lanes`].
+    pub fn at(&self, q: f32) -> f32 {
+        self.lanes(F::splat(q))[0]
+    }
+}
+
+/// `2^x`, to a few float32 rounding steps. Below `-126.5` it is 0, and it never overflows: the
+/// argument is clamped to 127.
+#[inline]
+fn exp2(x: F) -> F {
+    use std::simd::prelude::*;
+    let x = x.simd_clamp(F::splat(-127.0), F::splat(127.0));
+    // round to the nearest integer by adding and taking away 1.5 * 2^23, where a float32 has
+    // no fraction bits left: two adds in any vector unit, where round() may not be one
+    const MAGIC: f32 = 12_582_912.0;
+    let i = (x + F::splat(MAGIC)) - F::splat(MAGIC);
+    // 2^f = e^(f ln 2) for |f| <= 1/2, its Taylor series to the 7th power
+    let t = (x - i) * F::splat(std::f32::consts::LN_2);
+    let mut p = F::splat(1.0 / 5040.0);
+    for c in [
+        1.0 / 720.0,
+        1.0 / 120.0,
+        1.0 / 24.0,
+        1.0 / 6.0,
+        0.5,
+        1.0,
+        1.0,
+    ] {
+        p = p * t + F::splat(c);
+    }
+    // 2^i from its exponent bits; i = -127 gives the bits of 0.0
+    let bits = ((i.cast::<i32>() + Simd::splat(127)) << Simd::splat(23)).cast::<u32>();
+    p * F::from_bits(bits)
+}
+
+/// `log2 x` for `x >= 0`, to a few float32 rounding steps; 0 is taken as the smallest normal
+/// number, so `log2 0` is -126.
+#[inline]
+fn log2(x: F) -> F {
+    use std::simd::prelude::*;
+    let bits = x.simd_max(F::splat(f32::MIN_POSITIVE)).to_bits();
+    let mut e = ((bits >> Simd::splat(23)).cast::<i32>() - Simd::splat(127)).cast::<f32>();
+    let mut m = F::from_bits((bits & Simd::splat(0x007f_ffff)) | Simd::splat(0x3f80_0000));
+    // m in [1, 2), moved to [sqrt 1/2, sqrt 2) so the series below is short
+    let high = m.simd_gt(F::splat(std::f32::consts::SQRT_2));
+    m = high.select(m * F::splat(0.5), m);
+    e = high.select(e + F::splat(1.0), e);
+    // log2 m = 2 / ln 2 * atanh t, t = (m - 1) / (m + 1), |t| < 0.172, to the 9th power
+    let t = (m - F::splat(1.0)) / (m + F::splat(1.0));
+    let t2 = t * t;
+    let mut p = F::splat(1.0 / 9.0);
+    for c in [1.0 / 7.0, 1.0 / 5.0, 1.0 / 3.0, 1.0] {
+        p = p * t2 + F::splat(c);
+    }
+    e + F::splat(2.0 / std::f32::consts::LN_2) * t * p
 }
 
 /// Coefficients of `q(dx, dy) = a dx^2 + b dx dy + c dy^2` for standard deviations `sx` (major)
@@ -90,23 +141,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_table_is_the_profile() {
-        let mut worst = (0f64, 0f64);
+    fn the_profile_is_the_formula() {
+        let mut worst = vec![];
         for h in [0.0, 0.2, 0.4, 0.6, 0.8, 0.85, 0.9, 0.95, 0.98] {
             let n = hardness_exponent(h) as f32;
             let p = Profile::new(n);
+            let mut gap = 0f64;
             for i in 0..=90_000 {
                 let q = i as f32 * 1e-4;
                 let want = (-0.5 * (q as f64).powf(n as f64)).exp();
-                let gap = (p.at(q) as f64 - want).abs();
-                if gap > worst.0 {
-                    worst = (gap, h);
-                }
+                gap = gap.max((p.at(q) as f64 - want).abs());
             }
+            worst.push((h, gap));
         }
-        // 6e-8 for a Gaussian, 1.5e-6 at hardness 0.85, 1.1e-4 for the hardest brush, whose
-        // profile is nearly a step at q = 1.01: a thirtieth of 1/255
-        assert!(worst.0 < 2e-4, "{worst:?}");
+        // 6e-8 for a Gaussian to 1.0e-7 for the hardest: float32 rounding, the table was 1.1e-4
+        for (h, gap) in &worst {
+            assert!(*gap < 2e-7, "{worst:?} at hardness {h}");
+        }
+    }
+
+    #[test]
+    fn a_value_does_not_depend_on_its_lane() {
+        let p = Profile::new(hardness_exponent(0.8) as f32);
+        let qs = F::from_array([0.0, 0.3, 1.0, 1.7, 4.0, 8.2, 9.0, 12.0]);
+        let lanes = p.lanes(qs);
+        for (q, v) in qs.to_array().iter().zip(lanes.to_array()) {
+            assert_eq!(p.at(*q).to_bits(), v.to_bits());
+        }
     }
 
     #[test]
