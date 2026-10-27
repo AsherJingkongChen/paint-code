@@ -139,12 +139,11 @@ impl std::fmt::Debug for WetCanvas {
     }
 }
 
-/// Pixels of work below which a step stays on the calling thread: handing it to others would cost
-/// more than it saves.
+/// Pixels of compositing below which it stays on the calling thread.
 pub const SMALL: usize = 1 << 14;
 
-/// Cut items of the given sizes into consecutive runs of about equal total size, about four runs
-/// for each thread: where each run ends. None when the work is small enough for one thread.
+/// Cut rows that lay the given numbers of pixels into consecutive bands of about equal work, about
+/// four for each thread: where each band ends. None when the work is small enough for one thread.
 fn runs(sizes: &[usize]) -> Option<Vec<usize>> {
     let threads = rayon::current_num_threads();
     let total: usize = sizes.iter().sum();
@@ -342,8 +341,10 @@ impl WetCanvas {
     }
 
     /// Evaluate dabs in order, with their kernels in rooms cut from `scratch` (see
-    /// [`WetCanvas::footprint`]). The dabs go to the threads in consecutive runs of about equal
-    /// area, a run to a task; a few small dabs are evaluated on this thread.
+    /// [`WetCanvas::footprint`]), in parallel dab by dab. Cutting the dabs into runs of equal
+    /// area, four for each thread, with small petals kept on one thread, was slower on ten cores:
+    /// between petals every thread waits, so a petal left to one thread idles the rest, and
+    /// rayon's own splitting lets the threads that finish early take dabs from the slow ones.
     pub fn footprints<'a, 'd>(
         &self,
         dabs: impl Iterator<Item = &'d Dab> + Clone,
@@ -351,25 +352,11 @@ impl WetCanvas {
         src: Option<Source<'_>>,
         scratch: &'a mut Vec<f32>,
     ) -> Vec<(Footprint<'a>, Option<Pickup>)> {
-        let rooms = self.rooms(dabs.clone(), scratch);
-        let sizes: Vec<usize> = rooms.iter().map(|r| r.len()).collect();
-        let mut work: Vec<(&Dab, &'a mut [f32])> = dabs.zip(rooms).collect();
-        let eval = |(d, room): (&Dab, &'a mut [f32])| self.footprint(d, spans, src, room);
-        let Some(ends) = runs(&sizes) else {
-            return work.into_iter().map(eval).collect();
-        };
-        // each run starts where the one before it ended
-        let mut groups = Vec::with_capacity(ends.len());
-        for &start in std::iter::once(&0).chain(&ends[..ends.len() - 1]).rev() {
-            groups.push(work.split_off(start));
-        }
-        groups.reverse();
-        groups
-            .into_par_iter()
-            .map(|g| g.into_iter().map(eval).collect::<Vec<_>>())
-            .collect::<Vec<_>>()
-            .into_iter()
-            .flatten()
+        let dabs: Vec<&Dab> = dabs.collect();
+        let rooms = self.rooms(dabs.iter().copied(), scratch);
+        dabs.into_par_iter()
+            .zip(rooms)
+            .map(|(d, room)| self.footprint(d, spans, src, room))
             .collect()
     }
 
