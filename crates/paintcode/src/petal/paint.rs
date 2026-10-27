@@ -1,7 +1,6 @@
 use crate::flower::{Brush, Color};
 use crate::math::rng;
 use crate::render::{Dab, Footprint, Pickup, Spans, WetCanvas};
-use rayon::prelude::*;
 
 use super::path::{Sample, samples};
 
@@ -208,12 +207,9 @@ pub fn paint_planned(
             None => None,
         };
         let cv: &WetCanvas = canvas;
-        let rooms = cv.rooms(plans[range.clone()].iter().map(|p| &p.dab), &mut scratch);
-        let evaluated: Vec<(Footprint, Option<Pickup>)> = plans[range.clone()]
-            .par_iter()
-            .zip(rooms)
-            .map(|(p, room)| cv.footprint(&p.dab, opts.spans, src, room))
-            .collect();
+        let dabs = plans[range.clone()].iter().map(|p| &p.dab);
+        let evaluated: Vec<(Footprint, Option<Pickup>)> =
+            cv.footprints(dabs, opts.spans, src, &mut scratch);
         // carry the colour along: each dab is laid in the colour the brush holds before its own pickup
         let mut colours = Vec::with_capacity(evaluated.len());
         for (plan, (_, under)) in plans[range.clone()].iter().zip(&evaluated) {

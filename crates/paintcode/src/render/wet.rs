@@ -142,6 +142,33 @@ impl std::fmt::Debug for WetCanvas {
 /// The most rows a band of compositing takes.
 const BAND: usize = 16;
 
+/// Pixels of work below which a step stays on the calling thread: handing it to others would cost
+/// more than it saves.
+pub const SMALL: usize = 1 << 14;
+
+/// Cut items of the given sizes into consecutive runs of about equal total size, about four runs
+/// for each thread: where each run ends. None when the work is small enough for one thread.
+fn runs(sizes: &[usize]) -> Option<Vec<usize>> {
+    let threads = rayon::current_num_threads();
+    let total: usize = sizes.iter().sum();
+    if threads == 1 || total < SMALL {
+        return None;
+    }
+    let target = total.div_ceil(4 * threads).max(SMALL / 4);
+    let (mut ends, mut acc) = (Vec::new(), 0);
+    for (i, size) in sizes.iter().enumerate() {
+        acc += size;
+        if acc >= target {
+            ends.push(i + 1);
+            acc = 0;
+        }
+    }
+    if ends.last() != Some(&sizes.len()) {
+        ends.push(sizes.len());
+    }
+    Some(ends)
+}
+
 /// Lay one row of a footprint, "over": eight pixels at a time, then the rest one by one, with
 /// the same arithmetic in both, so the lanes change no bit.
 #[inline]
@@ -299,7 +326,7 @@ impl WetCanvas {
 
     /// A room for each dab, cut from one buffer that grows to fit and is kept between calls, so
     /// evaluating footprints in parallel allocates nothing and needs no lock.
-    pub fn rooms<'a, 'd>(
+    fn rooms<'a, 'd>(
         &self,
         dabs: impl Iterator<Item = &'d Dab> + Clone,
         scratch: &'a mut Vec<f32>,
@@ -315,6 +342,38 @@ impl WetCanvas {
             room
         })
         .collect()
+    }
+
+    /// Evaluate dabs in order, with their kernels in rooms cut from `scratch` (see
+    /// [`WetCanvas::footprint`]). The dabs go to the threads in consecutive runs of about equal
+    /// area, a run to a task; a few small dabs are evaluated on this thread.
+    pub fn footprints<'a, 'd>(
+        &self,
+        dabs: impl Iterator<Item = &'d Dab> + Clone,
+        spans: Spans,
+        src: Option<Source<'_>>,
+        scratch: &'a mut Vec<f32>,
+    ) -> Vec<(Footprint<'a>, Option<Pickup>)> {
+        let rooms = self.rooms(dabs.clone(), scratch);
+        let sizes: Vec<usize> = rooms.iter().map(|r| r.len()).collect();
+        let mut work: Vec<(&Dab, &'a mut [f32])> = dabs.zip(rooms).collect();
+        let eval = |(d, room): (&Dab, &'a mut [f32])| self.footprint(d, spans, src, room);
+        let Some(ends) = runs(&sizes) else {
+            return work.into_iter().map(eval).collect();
+        };
+        // each run starts where the one before it ended
+        let mut groups = Vec::with_capacity(ends.len());
+        for &start in std::iter::once(&0).chain(&ends[..ends.len() - 1]).rev() {
+            groups.push(work.split_off(start));
+        }
+        groups.reverse();
+        groups
+            .into_par_iter()
+            .map(|g| g.into_iter().map(eval).collect::<Vec<_>>())
+            .collect::<Vec<_>>()
+            .into_iter()
+            .flatten()
+            .collect()
     }
 
     /// Evaluate one dab: its kernel, and if `pickup` the wet paint under it read from `src`. The
