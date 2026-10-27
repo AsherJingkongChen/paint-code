@@ -139,31 +139,8 @@ impl std::fmt::Debug for WetCanvas {
     }
 }
 
-/// Pixels of compositing below which it stays on the calling thread.
-pub const SMALL: usize = 1 << 14;
-
-/// Cut rows that lay the given numbers of pixels into consecutive bands of about equal work, about
-/// four for each thread: where each band ends. None when the work is small enough for one thread.
-fn runs(sizes: &[usize]) -> Option<Vec<usize>> {
-    let threads = rayon::current_num_threads();
-    let total: usize = sizes.iter().sum();
-    if threads == 1 || total < SMALL {
-        return None;
-    }
-    let target = total.div_ceil(4 * threads).max(SMALL / 4);
-    let (mut ends, mut acc) = (Vec::new(), 0);
-    for (i, size) in sizes.iter().enumerate() {
-        acc += size;
-        if acc >= target {
-            ends.push(i + 1);
-            acc = 0;
-        }
-    }
-    if ends.last() != Some(&sizes.len()) {
-        ends.push(sizes.len());
-    }
-    Some(ends)
-}
+/// The most rows a band of compositing takes.
+const BAND: usize = 16;
 
 /// Lay one row of a footprint, "over": eight pixels at a time, then the rest one by one, with
 /// the same arithmetic in both, so the lanes change no bit.
@@ -477,73 +454,51 @@ impl WetCanvas {
     }
 
     /// Lay footprints down in order, "over" compositing, each in its colour. The rows the
-    /// footprints reach are cut into bands of about equal work, pixels laid, about four for each
-    /// thread; a band is one task, and a little work stays on this thread. Within a pixel the
-    /// order and the arithmetic are those of a one-dab-at-a-time engine, so the result does not
-    /// depend on the number of threads.
+    /// footprints reach are split into bands that run in parallel, about four for each thread,
+    /// so a small petal keeps every thread busy too; within a pixel the order and the arithmetic
+    /// are those of a one-dab-at-a-time engine, so the result does not depend on the number of
+    /// threads.
     pub fn composite(&mut self, prints: &[(&Footprint<'_>, [f32; 3])]) {
         let w = self.width;
         let laid = prints.iter().filter(|(fp, _)| !fp.skip);
-        let (top, bottom) = laid.clone().fold((usize::MAX, 0), |(t, b), (fp, _)| {
+        let (top, bottom) = laid.fold((usize::MAX, 0), |(t, b), (fp, _)| {
             (t.min(fp.y_min), b.max(fp.y_max))
         });
         if top >= bottom {
             return;
         }
-        // pixels laid on each row, to cut the bands by
-        let mut work = vec![0usize; bottom - top];
-        for (fp, _) in laid {
-            for sp in &fp.spans {
-                work[sp.y - top] += sp.len;
-            }
-        }
-        let ends = runs(&work).unwrap_or_else(|| vec![bottom - top]);
-        // each band's rows of the four planes, cut off the front one after another
-        let [red, green, blue] = &mut self.planes;
+        let band = (bottom - top)
+            .div_ceil(4 * rayon::current_num_threads())
+            .clamp(1, BAND);
         let rows = top * w..bottom * w;
-        let mut rest = [
-            &mut red[rows.clone()],
-            &mut green[rows.clone()],
-            &mut blue[rows.clone()],
-            &mut self.wet[rows],
-        ];
-        let mut bands = Vec::with_capacity(ends.len());
-        let mut b0 = top;
-        for &end in &ends {
-            let b1 = top + end;
-            let cut = rest.each_mut().map(|p| {
-                let (band, tail) = std::mem::take(p).split_at_mut((b1 - b0) * w);
-                *p = tail;
-                band
+        let [red, green, blue] = &mut self.planes;
+        red[rows.clone()]
+            .par_chunks_mut(band * w)
+            .zip(green[rows.clone()].par_chunks_mut(band * w))
+            .zip(blue[rows.clone()].par_chunks_mut(band * w))
+            .zip(self.wet[rows].par_chunks_mut(band * w))
+            .enumerate()
+            .for_each(|(i, (((r, g), b), wet))| {
+                let (b0, b1) = (top + i * band, top + i * band + wet.len() / w);
+                for &(fp, col) in prints {
+                    if fp.skip || fp.y_max <= b0 || fp.y_min >= b1 {
+                        continue;
+                    }
+                    // spans are in row order: the band's are one run of them
+                    let first = fp.spans.partition_point(|sp| sp.y < b0);
+                    let last = first + fp.spans[first..].partition_point(|sp| sp.y < b1);
+                    for sp in &fp.spans[first..last] {
+                        let row = (sp.y - b0) * w + sp.x0..(sp.y - b0) * w + sp.x0 + sp.len;
+                        let ks = &fp.k[sp.off..sp.off + sp.len];
+                        let (r, g, b) = (
+                            &mut r[row.clone()],
+                            &mut g[row.clone()],
+                            &mut b[row.clone()],
+                        );
+                        lay(fp.alpha, col, ks, [r, g, b], &mut wet[row]);
+                    }
+                }
             });
-            bands.push((b0, b1, cut));
-            b0 = b1;
-        }
-        let lay_band = |(b0, b1, [r, g, b, wet]): (usize, usize, [&mut [f32]; 4])| {
-            for &(fp, col) in prints {
-                if fp.skip || fp.y_max <= b0 || fp.y_min >= b1 {
-                    continue;
-                }
-                // spans are in row order: the band's are one run of them
-                let first = fp.spans.partition_point(|sp| sp.y < b0);
-                let last = first + fp.spans[first..].partition_point(|sp| sp.y < b1);
-                for sp in &fp.spans[first..last] {
-                    let row = (sp.y - b0) * w + sp.x0..(sp.y - b0) * w + sp.x0 + sp.len;
-                    let ks = &fp.k[sp.off..sp.off + sp.len];
-                    let (r, g, b) = (
-                        &mut r[row.clone()],
-                        &mut g[row.clone()],
-                        &mut b[row.clone()],
-                    );
-                    lay(fp.alpha, col, ks, [r, g, b], &mut wet[row]);
-                }
-            }
-        };
-        if bands.len() == 1 {
-            bands.into_iter().for_each(lay_band);
-        } else {
-            bands.into_par_iter().for_each(lay_band);
-        }
     }
 
     /// Gaussian-weighted colour around (x, y): loads a smudge brush. None when the window of
