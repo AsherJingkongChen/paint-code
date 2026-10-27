@@ -201,6 +201,11 @@ fn lay_petals(
     for (i, p) in petals.iter().enumerate().take(n) {
         let (brush, planned) = next.take().expect("planned before it is painted");
         // the next petal is planned while this one is painted: planning reads no pixel
+        if render::alone() {
+            petal::paint_planned(canvas, &planned, &brush, &p.color, opts.petal);
+            next = (i + 1 < n).then(|| plan(i + 1));
+            continue;
+        }
         (_, next) = rayon::join(
             || petal::paint_planned(canvas, &planned, &brush, &p.color, opts.petal),
             || (i + 1 < n).then(|| plan(i + 1)),

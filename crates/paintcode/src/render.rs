@@ -17,4 +17,4 @@ mod wet;
 
 pub use canvas::Canvas;
 pub use coat::{Coat, lay_coat};
-pub use wet::{Dab, Footprint, MAX_PIXELS, Pickup, Source, Spans, WetCanvas};
+pub use wet::{Dab, Footprint, MAX_PIXELS, Pickup, Source, Spans, WetCanvas, alone};

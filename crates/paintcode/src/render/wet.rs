@@ -139,6 +139,12 @@ impl std::fmt::Debug for WetCanvas {
     }
 }
 
+/// Whether rayon has one thread to give: then nothing is handed to it, since splitting work for
+/// one thread only costs.
+pub fn alone() -> bool {
+    rayon::current_num_threads() == 1
+}
+
 /// The most rows a band of compositing takes.
 const BAND: usize = 16;
 
@@ -331,10 +337,11 @@ impl WetCanvas {
     ) -> Vec<(Footprint<'a>, Option<Pickup>)> {
         let dabs: Vec<&Dab> = dabs.collect();
         let rooms = self.rooms(dabs.iter().copied(), scratch);
-        dabs.into_par_iter()
-            .zip(rooms)
-            .map(|(d, room)| self.footprint(d, spans, src, room))
-            .collect()
+        let eval = |(d, room)| self.footprint(d, spans, src, room);
+        if alone() {
+            return dabs.into_iter().zip(rooms).map(eval).collect();
+        }
+        dabs.into_par_iter().zip(rooms).map(eval).collect()
     }
 
     /// Evaluate one dab: its kernel, and if `pickup` the wet paint under it read from `src`. The
@@ -467,38 +474,48 @@ impl WetCanvas {
         if top >= bottom {
             return;
         }
+        let rows = top * w..bottom * w;
+        let [red, green, blue] = &mut self.planes;
+        let (r, g, b, wet) = (
+            &mut red[rows.clone()],
+            &mut green[rows.clone()],
+            &mut blue[rows.clone()],
+            &mut self.wet[rows],
+        );
+        let lay_band = |b0: usize, [r, g, b, wet]: [&mut [f32]; 4]| {
+            let b1 = b0 + wet.len() / w;
+            for &(fp, col) in prints {
+                if fp.skip || fp.y_max <= b0 || fp.y_min >= b1 {
+                    continue;
+                }
+                // spans are in row order: the band's are one run of them
+                let first = fp.spans.partition_point(|sp| sp.y < b0);
+                let last = first + fp.spans[first..].partition_point(|sp| sp.y < b1);
+                for sp in &fp.spans[first..last] {
+                    let row = (sp.y - b0) * w + sp.x0..(sp.y - b0) * w + sp.x0 + sp.len;
+                    let ks = &fp.k[sp.off..sp.off + sp.len];
+                    let (r, g, b) = (
+                        &mut r[row.clone()],
+                        &mut g[row.clone()],
+                        &mut b[row.clone()],
+                    );
+                    lay(fp.alpha, col, ks, [r, g, b], &mut wet[row]);
+                }
+            }
+        };
+        // one thread lays every row as one band, with nothing handed to rayon
+        if alone() {
+            return lay_band(top, [r, g, b, wet]);
+        }
         let band = (bottom - top)
             .div_ceil(4 * rayon::current_num_threads())
             .clamp(1, BAND);
-        let rows = top * w..bottom * w;
-        let [red, green, blue] = &mut self.planes;
-        red[rows.clone()]
-            .par_chunks_mut(band * w)
-            .zip(green[rows.clone()].par_chunks_mut(band * w))
-            .zip(blue[rows.clone()].par_chunks_mut(band * w))
-            .zip(self.wet[rows].par_chunks_mut(band * w))
+        r.par_chunks_mut(band * w)
+            .zip(g.par_chunks_mut(band * w))
+            .zip(b.par_chunks_mut(band * w))
+            .zip(wet.par_chunks_mut(band * w))
             .enumerate()
-            .for_each(|(i, (((r, g), b), wet))| {
-                let (b0, b1) = (top + i * band, top + i * band + wet.len() / w);
-                for &(fp, col) in prints {
-                    if fp.skip || fp.y_max <= b0 || fp.y_min >= b1 {
-                        continue;
-                    }
-                    // spans are in row order: the band's are one run of them
-                    let first = fp.spans.partition_point(|sp| sp.y < b0);
-                    let last = first + fp.spans[first..].partition_point(|sp| sp.y < b1);
-                    for sp in &fp.spans[first..last] {
-                        let row = (sp.y - b0) * w + sp.x0..(sp.y - b0) * w + sp.x0 + sp.len;
-                        let ks = &fp.k[sp.off..sp.off + sp.len];
-                        let (r, g, b) = (
-                            &mut r[row.clone()],
-                            &mut g[row.clone()],
-                            &mut b[row.clone()],
-                        );
-                        lay(fp.alpha, col, ks, [r, g, b], &mut wet[row]);
-                    }
-                }
-            });
+            .for_each(|(i, (((r, g), b), wet))| lay_band(top + i * band, [r, g, b, wet]));
     }
 
     /// Gaussian-weighted colour around (x, y): loads a smudge brush. None when the window of
